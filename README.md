@@ -19,7 +19,9 @@ Visual overlays (lines, angles, arcs) are automatically drawn to confirm that th
 
 Download or clone the repository.
 
-In 3D Slicer, open Edit → Application Settings → Modules → Additional Module Paths.
+In 3D Slicer, open Edit → Application Settings → Modules → Additional Module Paths:
+
+<img width="917" height="667" alt="image" src="https://github.com/user-attachments/assets/97d970be-c633-44fb-af2b-8361d4df6609" />
 
 Add the folder containing the extension and restart Slicer.
 
