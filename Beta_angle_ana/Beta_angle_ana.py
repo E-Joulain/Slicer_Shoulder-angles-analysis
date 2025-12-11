@@ -482,7 +482,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         return points
 
     # --- Draw arc ---
-    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.001, num_points=30):
+    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.0001, num_points=30):
         """
         Draw an arc centered at `vertex`, starting at `p1` and spanning `angle_deg` toward `p2`.
         The arc is drawn in the XY plane.
