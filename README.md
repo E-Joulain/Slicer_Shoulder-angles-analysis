@@ -17,6 +17,12 @@ Visual overlays (lines, angles, arcs) are automatically drawn to confirm that th
 
 # Installation
 
+## Installing 3D Slicer
+
+To use Shoulder-angles-analysis with 3D Slicer, you'll need to download and install 3D Slicer. 
+This extension supports the stable and preview versions of 3D Slicer, version 5.3 or higher. For more information on installing 3D Slicer, check out the 3D Slicer Documentation
+
+## Add extension
 Download or clone the repository.
 
 In 3D Slicer, open Edit → Application Settings → Modules → Additional Module Paths:
