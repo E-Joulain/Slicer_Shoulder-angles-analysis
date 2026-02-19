@@ -153,6 +153,14 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.patientIdLineEdit.setPlaceholderText("Enter patient ID")
         formLayout.addRow("Patient ID:", self.patientIdLineEdit)
 
+        # Output folder selector
+        self.outputDirectoryButton = ctk.ctkPathLineEdit()
+        self.outputDirectoryButton.filters = ctk.ctkPathLineEdit.Dirs
+        self.outputDirectoryButton.setToolTip("Select folder where results will be saved")
+        self.outputDirectoryButton.currentPath = slicer.app.temporaryPath
+
+        formLayout.addRow("Output folder:", self.outputDirectoryButton)
+
         # Fiducial table
         self.fiducialTableCollapsible = ctk.ctkCollapsibleButton()
         self.fiducialTableCollapsible.text = "Here a table guiding the position of the needed fiducials nodes for the analysis"
@@ -286,9 +294,22 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.errorDisplay(f"No fiducials placed for {timepoint}")
             return
 
-        moduleDir = os.path.dirname(os.path.abspath(__file__))
-        dataDir = os.path.join(moduleDir, "data")
-        os.makedirs(dataDir, exist_ok=True)
+        # Path
+        outputDir = self.outputDirectoryButton.currentPath
+        if not os.path.exists(outputDir):
+            slicer.util.errorDisplay("Selected output folder does not exist.")
+            return
+        patientID = self.patientIdLineEdit.text().strip()
+        if not patientID:
+            slicer.util.errorDisplay("Please enter a patient ID before exporting.")
+            return
+        fileName = f"fiducials_{patientID}_{timepoint}.fcsv"
+        filePath = os.path.join(outputDir, fileName)
+        try:
+            slicer.util.saveNode(node, filePath)
+            slicer.util.showStatusMessage(f"Fiducials saved to: {filePath}", 5000)
+        except Exception as e:
+            slicer.util.errorDisplay(f"Failed to save fiducials: {e}")
 
         patientID = self.patientIdLineEdit.text().strip()
         if not patientID:
@@ -297,7 +318,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         fileName = "fiducials"
         fullFileName = f"{fileName}_{patientID}_{timepoint}.fcsv"
-        filePath = os.path.join(dataDir, fullFileName)
+        filePath = os.path.join(outputDir, fullFileName)
 
         slicer.util.saveNode(node, filePath)
         slicer.util.showStatusMessage(f"Fiducials nodes saved to: {filePath}", 5000)
@@ -305,6 +326,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onCalculateMetrics(self, timepoint: str):
         """Compute all metrics from fiducials and draw them."""
         nodeName = f"Fiducials_{timepoint}"
+        outputDir = self.outputDirectoryButton.currentPath
         markupNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
         if not markupNode:
             slicer.util.errorDisplay(f"No fiducials placed for {timepoint}")
@@ -365,7 +387,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "critical_shoulder_angle": csa_angle,
             "subacromial_space": sas_distance
         }
-        self.logic.saveMetricsToCSV(metrics, patientID)
+        self.logic.saveMetricsToCSV(metrics, patientID, outputDir)
         slicer.util.showStatusMessage(f"Beta: {beta_angle:.1f}°, CSA: {csa_angle:.1f}°, SAS: {sas_distance:.1f} mm",
                                       5000)
 
@@ -390,29 +412,43 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         return points
 
     # --- Save data in a .csv file ---
-    def saveMetricsToCSV(self, metrics, patientID):
+    def saveMetricsToCSV(self, metrics, patientID, outputDir):
         """
         Save metrics dictionary to CSV file in analysis_beta folder.
         """
-        import os, csv
-        moduleDir = os.path.join(slicer.app.temporaryPath, "analysis_beta")
-        os.makedirs(moduleDir, exist_ok=True)
-        analysisDir = os.path.join(slicer.app.temporaryPath, "analysis_beta")
-        os.makedirs(analysisDir, exist_ok=True)
-        fileName = f"{patientID}.csv"
-        filePath = os.path.join(analysisDir, fileName)
+
+        if not os.path.exists(outputDir):
+            slicer.util.errorDisplay("Selected output folder does not exist.")
+            return
+
+        fileName = f"{patientID}_metrics.csv"
+        filePath = os.path.join(outputDir, fileName)
 
         try:
             with open(filePath, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(["Metric", "Value"])
                 for key, value in metrics.items():
-                    if isinstance(value, (list, tuple, np.ndarray)):
-                        value_str = ";".join(str(v) for v in np.array(value).flatten())
-                    else:
-                        value_str = str(value)
-                    writer.writerow([key, value_str])
+                    writer.writerow([key, value])
+
             slicer.util.showStatusMessage(f"Metrics saved to: {filePath}", 5000)
+
+        except PermissionError:
+            slicer.util.errorDisplay("Permission denied. Please choose another folder.")
+        except Exception as e:
+            slicer.util.errorDisplay(f"Failed to save CSV: {e}")
+
+        try:
+                with open(filePath, 'w', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(["Metric", "Value"])
+                    for key, value in metrics.items():
+                        if isinstance(value, (list, tuple, np.ndarray)):
+                            value_str = ";".join(str(v) for v in np.array(value).flatten())
+                        else:
+                            value_str = str(value)
+                        writer.writerow([key, value_str])
+                slicer.util.showStatusMessage(f"Metrics saved to: {filePath}", 5000)
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to save CSV: {e}")
 
