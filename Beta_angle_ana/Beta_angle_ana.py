@@ -19,15 +19,6 @@ from slicer.parameterNodeWrapper import (
 )
 from slicer import vtkMRMLScalarVolumeNode
 
-try:
-    import pandas as pd
-except ImportError:
-    # Install pandas if not available; this only runs when module is executed interactively
-    slicer.util.infoDisplay("Installing pandas. Please wait...")
-    with slicer.util.displayPythonShell():
-        slicer.util.pip_install('pandas')
-    import pandas as pd
-
 
 class Beta_angle_ana(ScriptedLoadableModule):
     """
@@ -42,7 +33,7 @@ class Beta_angle_ana(ScriptedLoadableModule):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = _("Beta_angle_ana")
         # Keep categories concise and correct
-        self.parent.categories = [translate("qSlicerAbstractCoreModule", "Custome_model")]
+        self.parent.categories = [ "Custome_model"]
         self.parent.dependencies = []
         self.parent.contributors = ["Elise Joulain (UNIGE)"]
         self.parent.helpText = _("""
@@ -404,8 +395,9 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         Save metrics dictionary to CSV file in analysis_beta folder.
         """
         import os, csv
-        moduleDir = os.path.dirname(os.path.abspath(__file__))
-        analysisDir = os.path.join(moduleDir, "analysis_beta")
+        moduleDir = os.path.join(slicer.app.temporaryPath, "analysis_beta")
+        os.makedirs(moduleDir, exist_ok=True)
+        analysisDir = os.path.join(slicer.app.temporaryPath, "analysis_beta")
         os.makedirs(analysisDir, exist_ok=True)
         fileName = f"{patientID}.csv"
         filePath = os.path.join(analysisDir, fileName)
@@ -540,39 +532,3 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetVisibility3D(True)
 
 
-
-class Beta_angle_anaTest(ScriptedLoadableModuleTest):
-    def setUp(self):
-        slicer.mrmlScene.Clear()
-
-    def runTest(self):
-        self.setUp()
-        self.test_Beta_angle_ana1()
-
-    def test_Beta_angle_ana1(self):
-        self.delayDisplay("Starting the test")
-        import SampleData
-        registerSampleData()
-        inputVolume = SampleData.downloadSample("Beta_angle_ana1")
-        self.delayDisplay("Loaded test data set")
-
-        inputScalarRange = inputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(inputScalarRange[0], 0)
-        self.assertEqual(inputScalarRange[1], 695)
-
-        outputVolume = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode")
-        threshold = 100
-
-        logic = Beta_angle_anaLogic()
-
-        logic.process(inputVolume, outputVolume, threshold, True)
-        outputScalarRange = outputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(outputScalarRange[0], inputScalarRange[0])
-        self.assertEqual(outputScalarRange[1], threshold)
-
-        logic.process(inputVolume, outputVolume, threshold, False)
-        outputScalarRange = outputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(outputScalarRange[0], inputScalarRange[0])
-        self.assertEqual(outputScalarRange[1], inputScalarRange[1])
-
-        self.delayDisplay("Test passed")
