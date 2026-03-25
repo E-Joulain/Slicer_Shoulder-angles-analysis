@@ -114,11 +114,11 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
             "P6": "Lateral acromion",
             "P7": "Medial acromion",
-            "P8": "Greater tuberosity_head",
+            "P8": "Lateral bone-cartilage junction", #"Greater tuberosity_head",
             "P9": "Humeral head contour point 1",
             "P10": "Humeral head contour point 2",
             "P11": "Humeral head contour point 3",
-            "P12": "lateral edage of the greater tuberosity",
+            "P12": "lateral edge of the greater tuberosity",
 
             "P13": "Proximal point, medial internal cortex",
             "P14": "Proximal point, lateral internal cortex",
@@ -414,8 +414,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # --- Critical Shoulder Angle (CSA) ---
         csa_angle = self.logic.compute_angle(P4, P3, P6)
-        self.logic.draw_line(P3, P4, color=(0, 1, 0), name="CSA")
-        self.logic.draw_line(P4, P6, color=(0, 1, 0))
+        self.logic.draw_line(P3, P4, color=(0.5, 0, 1), name="CSA")
+        self.logic.draw_line(P3, P6, color=(0.5, 0, 1))
 
         # --- Subacromial space (SAS) ---
         center, radius = self.logic.compute_circle_center(P9, P10, P11)
@@ -462,14 +462,14 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
         # --- Glenoid inclination angle (GIA) ---
-        gia_angle = self.logic.compute_beta_angle({
-            'P1': {'x': P1[0], 'y': P1[1]},
-            'P2': {'x': P2[0], 'y': P2[1]},
-            'P3': {'x': P3[0], 'y': P3[1]},
-            'P4': {'x': P4[0], 'y': P4[1]}
-        })
-        self.logic.draw_line(P1, P2, color=(0.8, 0.2, 1), name="GIA")
-        self.logic.draw_line(P3, P4, color=(0.8, 0.2, 1))
+       # gia_angle = 180 - self.logic.compute_beta_angle({
+       #     'P1': {'x': P1[0], 'y': P1[1]},
+       #     'P2': {'x': P2[0], 'y': P2[1]},
+       #     'P3': {'x': P3[0], 'y': P3[1]},
+       #     'P4': {'x': P4[0], 'y': P4[1]}
+       # })
+       # self.logic.draw_line(P1, P2, color=(0.8, 0.2, 1), name="GIA")
+       # self.logic.draw_line(P3, P4, color=(0.8, 0.2, 1))
 
         # --- Distalization shoulder angle (DSA) ---
         dsa_angle = self.logic.compute_angle(P8, P4, P6)
@@ -498,7 +498,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "GH": gh_distance,
             "SNL": snl_distance,
             "SNA": sna_angle,
-            "GIA": gia_angle,
+         #   "GIA": gia_angle,
             "DSA": dsa_angle,
             "LSA": lsa_angle,
             "HumeralAxis": axis_vector
@@ -514,7 +514,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             f"GH   : {gh_distance:.1f} mm\n"
             f"SNL  : {snl_distance:.1f} mm\n"
             f"SNA  : {sna_angle:.1f}°\n"
-            f"GIA  : {gia_angle:.1f}°\n"
+        #    f"GIA  : {gia_angle:.1f}°\n"
             f"DSA  : {dsa_angle:.1f}°\n"
             f"LSA  : {lsa_angle:.1f}°\n"
         )
