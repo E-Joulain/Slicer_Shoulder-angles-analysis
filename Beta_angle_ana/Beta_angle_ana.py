@@ -172,6 +172,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         formLayout.addRow("Output folder:", self.outputDirectoryButton)
 
+        # PDF for placement of the fiducial point
+        self.instructionsButton = qt.QPushButton("View placement guide (PDF)")
+        self.instructionsButton.setToolTip("Open the fiducial placement instructions")
+        self.instructionsButton.clicked.connect(self.onOpenInstructionsPDF)
+        self.layout.addWidget(self.instructionsButton)
+
         # Fiducial table
         self.fiducialTableCollapsible = ctk.ctkCollapsibleButton()
         self.fiducialTableCollapsible.text = "Here a table guiding the position of the needed fiducials nodes for the analysis"
@@ -215,7 +221,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.toggleLabelsButton.connect('clicked(bool)', self.onToggleFiducialLabels)
         self.beta_angleLayout.addWidget(self.toggleLabelsButton)
 
-        self.beta_angleExportButton = qt.QPushButton("Export fiducials nodes")
+        self.beta_angleExportButton = qt.QPushButton("Export fiducials nodes and parameters")
         self.beta_angleExportButton.connect('clicked(bool)', lambda: self.onExportFiducials("beta_angle"))
         self.beta_angleLayout.addWidget(self.beta_angleExportButton)
 
@@ -314,42 +320,62 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.errorDisplay(f"Error retrieving pixel spacing: {str(e)}")
             return None
 
-
     def onExportFiducials(self, timepoint: str):
+
         nodeName = f"Fiducials_{timepoint}"
         node = slicer.mrmlScene.GetFirstNodeByName(nodeName)
+
         if not node:
             slicer.util.errorDisplay(f"No fiducials placed for {timepoint}")
             return
 
-        # Path
-        outputDir = self.outputDirectoryButton.currentPath
-        if not os.path.exists(outputDir):
-            slicer.util.errorDisplay("Selected output folder does not exist.")
+        # --- Check metrics exist ---
+        if not hasattr(self, "currentMetrics"):
+            slicer.util.errorDisplay("Please compute metrics before exporting.")
             return
-        patientID = self.patientIdLineEdit.text().strip()
+
+        # --- Ask user for folder ---
+        outputDir = qt.QFileDialog.getExistingDirectory(
+            slicer.util.mainWindow(),
+            "Select output folder"
+        )
+
+        if not outputDir:
+            slicer.util.showStatusMessage("Export cancelled.", 2000)
+            return
+
+        # --- Patient ID ---
+        patientID = self.patientIdLineEdit.text.strip()
         if not patientID:
             slicer.util.errorDisplay("Please enter a patient ID before exporting.")
             return
-        fileName = f"fiducials_{patientID}_{timepoint}.fcsv"
-        filePath = os.path.join(outputDir, fileName)
+
         try:
-            slicer.util.saveNode(node, filePath)
-            slicer.util.showStatusMessage(f"Fiducials saved to: {filePath}", 5000)
+            # --- Save fiducials ---
+            fidFile = os.path.join(outputDir, f"fiducials_{patientID}_{timepoint}.fcsv")
+            slicer.util.saveNode(node, fidFile)
+
+            # --- Save metrics ---
+            self.logic.saveMetricsToCSV(self.currentMetrics, patientID, outputDir)
+
+            slicer.util.showStatusMessage("Fiducials + metrics saved successfully!", 5000)
+
         except Exception as e:
-            slicer.util.errorDisplay(f"Failed to save fiducials: {e}")
+            slicer.util.errorDisplay(f"Export failed: {e}")
 
-        patientID = self.patientIdLineEdit.text().strip()
-        if not patientID:
-            slicer.util.errorDisplay("Please enter a patient ID before exporting.")
-            return
+    def onOpenInstructionsPDF(self):
+        try:
+            moduleDir = os.path.dirname(__file__)
+            pdfPath = os.path.join(moduleDir, "Resources", "Guide_Placement.pdf")
 
-        fileName = "fiducials"
-        fullFileName = f"{fileName}_{patientID}_{timepoint}.fcsv"
-        filePath = os.path.join(outputDir, fullFileName)
+            if not os.path.exists(pdfPath):
+                slicer.util.errorDisplay("PDF file not found.")
+                return
 
-        slicer.util.saveNode(node, filePath)
-        slicer.util.showStatusMessage(f"Fiducials nodes saved to: {filePath}", 5000)
+            qt.QDesktopServices.openUrl(qt.QUrl.fromLocalFile(pdfPath))
+
+        except Exception as e:
+            slicer.util.errorDisplay(f"Failed to open PDF: {str(e)}")
 
     def onCalculateMetrics(self, timepoint: str):
         """Compute all metrics from fiducials and draw them."""
@@ -503,7 +529,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "LSA": lsa_angle,
             "HumeralAxis": axis_vector
         }
-        self.logic.saveMetricsToCSV(metrics, patientID, outputDir)
+       # self.logic.saveMetricsToCSV(metrics, patientID, outputDir)
+        self.currentMetrics = metrics
         # --- Format results as table ---
         text = (
             f"Patient: {patientID}\n"
