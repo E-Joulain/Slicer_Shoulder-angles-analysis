@@ -105,25 +105,39 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ScriptedLoadableModuleWidget.setup(self)
 
         # Simple mapping of fiducial labels used in the UI table
+        # NOTE: numbering updated (15 points total). Mapping vs the previous
+        # 16-point scheme (for traceability):
+        #   old P13 -> new P1   (Diaphysis proximal medial)
+        #   old P14 -> new P2   (Diaphysis proximal lateral)
+        #   old P15 -> new P3   (Diaphysis distal medial)
+        #   old P16 -> new P4   (Diaphysis distal lateral)
+        #   old P12 -> new P5   (GT lateral angle)
+        #   old P9 + old P8 -> new P6  (Head-GT junction, merged duplicate point)
+        #   old P10 -> new P7  (Head-calcar junction)
+        #   old P11 -> new P8  (Head surface)
+        #   old P1  -> new P9  (Medial fossa)
+        #   old P2  -> new P10 (Lateral fossa)
+        #   old P4  -> new P11 (Upper glenoid)
+        #   old P3  -> new P12 (Lower glenoid)
+        #   old P6  -> new P13 (Lateral acromion)
+        #   old P7  -> new P14 (Medial acromion)
+        #   old P5  -> new P15 (Medial part of the scapular neck)
         self.fiducialLabels = {
-            "P1": "First point on cortical margin of the supraspinatus fossa",
-            "P2": "Second point on cortical margin of the supraspinatus fossa",
-            "P3": "Glenoid lower",
-            "P4": "Glenoid upper",
-            "P5": "Medial part of the scapular neck",
-
-            "P6": "Lateral acromion",
-            "P7": "Medial acromion",
-            "P8": "Lateral bone-cartilage junction", #"Greater tuberosity_head",
-            "P9": "Humeral head contour point 1",
-            "P10": "Humeral head contour point 2",
-            "P11": "Humeral head contour point 3",
-            "P12": "lateral edge of the greater tuberosity",
-
-            "P13": "Proximal point, medial internal cortex",
-            "P14": "Proximal point, lateral internal cortex",
-            "P15": "Distal point, medial internal cortex",
-            "P16": "Distal point, lateral internal cortex"
+            "P1": "Diaphysis proximal medial",
+            "P2": "Diaphysis proximal lateral",
+            "P3": "Diaphysis distal medial",
+            "P4": "Diaphysis distal lateral",
+            "P5": "GT lateral angle",
+            "P6": "Head-GT junction",
+            "P7": "Head-calcar junction",
+            "P8": "Head surface",
+            "P9": "Medial fossa",
+            "P10": "Lateral fossa",
+            "P11": "Upper glenoid",
+            "P12": "Lower glenoid",
+            "P13": "Lateral acromion",
+            "P14": "Medial acromion",
+            "P15": "Medial part of the scapular neck",
         }
 
         # Main layout and form
@@ -351,12 +365,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         try:
-            # --- Save fiducials ---
-            fidFile = os.path.join(outputDir, f"fiducials_{patientID}_{timepoint}.fcsv")
-            slicer.util.saveNode(node, fidFile)
-
-            # --- Save metrics ---
-            self.logic.saveMetricsToCSV(self.currentMetrics, patientID, outputDir)
+            # --- Save fiducials + metrics together in a single CSV file ---
+            self.logic.saveCombinedCSV(node, self.currentMetrics, patientID, timepoint, outputDir)
 
             slicer.util.showStatusMessage("Fiducials + metrics saved successfully!", 5000)
 
@@ -378,7 +388,29 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.errorDisplay(f"Failed to open PDF: {str(e)}")
 
     def onCalculateMetrics(self, timepoint: str):
-        """Compute all metrics from fiducials and draw them."""
+        """Compute all metrics from fiducials and draw them.
+
+        Point numbering (15 fiducials total) and anatomical meaning:
+            P1  - Diaphysis proximal medial
+            P2  - Diaphysis proximal lateral
+            P3  - Diaphysis distal medial
+            P4  - Diaphysis distal lateral
+            P5  - GT lateral angle
+            P6  - Head-GT junction
+            P7  - Head-calcar junction
+            P8  - Head surface
+            P9  - Medial fossa
+            P10 - Lateral fossa
+            P11 - Upper glenoid
+            P12 - Lower glenoid
+            P13 - Lateral acromion
+            P14 - Medial acromion
+            P15 - Medial part of the scapular neck
+
+        All geometric formulas below keep the exact same anatomical logic as
+        before; only the point indices have been remapped to match this new
+        numbering (see mapping comment in setup()).
+        """
         nodeName = f"Fiducials_{timepoint}"
         outputDir = self.outputDirectoryButton.currentPath
         markupNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
@@ -411,56 +443,66 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         P10 = np.array([points['P10']['x'], points['P10']['y'], points['P10']['z']])
         P11 = np.array([points['P11']['x'], points['P11']['y'], points['P11']['z']])
         P12 = np.array([points['P12']['x'], points['P12']['y'], points['P12']['z']])
-
-            # inner cortical
         P13 = np.array([points['P13']['x'], points['P13']['y'], points['P13']['z']])
         P14 = np.array([points['P14']['x'], points['P14']['y'], points['P14']['z']])
         P15 = np.array([points['P15']['x'], points['P15']['y'], points['P15']['z']])
-        P16 = np.array([points['P16']['x'], points['P16']['y'], points['P16']['z']])
 
         # --- Beta angle ---
-        beta_angle = self.logic.compute_beta_angle(points)
-            # Compute intersection in XY plane
-        x1, y1 = P1[:2]
-        x2, y2 = P2[:2]
-        x3, y3 = P3[:2]
-        x4, y4 = P4[:2]
+        # Old logic used fossa cortex line (old P1,P2) vs glenoid line (old P3,P4)
+        # New mapping: old P1->P9, old P2->P10, old P3->P12, old P4->P11
+        beta_angle = self.logic.compute_beta_angle({
+            'P1': {'x': P9[0], 'y': P9[1]},
+            'P2': {'x': P10[0], 'y': P10[1]},
+            'P3': {'x': P12[0], 'y': P12[1]},
+            'P4': {'x': P11[0], 'y': P11[1]},
+        })
+        # Compute intersection in XY plane
+        x1, y1 = P9[:2]
+        x2, y2 = P10[:2]
+        x3, y3 = P12[:2]
+        x4, y4 = P11[:2]
 
         denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
         if denom == 0:
             # Lines are parallel
-            intersect = P2.copy()
+            intersect = P10.copy()
         else:
             px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denom
             py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denom
             intersect = np.array([px, py, 0.0])
 
         # Draw arc with the intersection as vertex
-      #  self.logic.draw_arc(intersect, P1, P4, beta_angle, name="BetaAngleArc", color=(1, 1, 0))
+      #  self.logic.draw_arc(intersect, P9, P11, beta_angle, name="BetaAngleArc", color=(1, 1, 0))
 
         # --- Critical Shoulder Angle (CSA) ---
-        csa_angle = self.logic.compute_angle(P4, P3, P6)
-        self.logic.draw_line(P3, P4, color=(0.5, 0, 1), name="CSA")
-        self.logic.draw_line(P3, P6, color=(0.5, 0, 1))
+        # Old: compute_angle(P4, P3, P6) -> glenoid upper, glenoid lower, lateral acromion
+        # New mapping: old P4->P11, old P3->P12, old P6->P13
+        csa_angle = self.logic.compute_angle(P11, P12, P13)
+        self.logic.draw_line(P12, P11, color=(0.5, 0, 1), name="CSA")
+        self.logic.draw_line(P12, P13, color=(0.5, 0, 1))
 
         # --- Subacromial space (SAS) ---
-        center, radius = self.logic.compute_circle_center(P9, P10, P11)
+        # Old: circle on humeral head contour points (old P9, P10, P11)
+        # New mapping: old P9->P6, old P10->P7, old P11->P8
+        center, radius = self.logic.compute_circle_center(P6, P7, P8)
 
         if center is not None:
             self.logic.draw_circle(center, radius, name="HumeralHeadCircle")
 
             # Direction of acromial line
-            AB = P7 - P6
+            # Old: old P6 (lateral acromion), old P7 (medial acromion)
+            # New mapping: old P6->P13, old P7->P14
+            AB = P14 - P13
             AB_norm = AB / np.linalg.norm(AB)
 
             # Normal vector (perpendicular)
             normal = np.array([-AB_norm[1], AB_norm[0], 0])
 
             # Signed distance from center to acromial line
-            d = self.logic.distance_point_to_line(center, P6, P7)
+            d = self.logic.distance_point_to_line(center, P13, P14)
 
             # --- Choose correct side for tangent ---
-            vec = center - P6
+            vec = center - P13
             sign = np.sign(np.dot(vec, normal))
 
             # Tangent point on circle
@@ -470,46 +512,59 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             tangent_start = tangent_point - AB_norm * 50
             tangent_end = tangent_point + AB_norm * 50
             self.logic.draw_line(tangent_start, tangent_end, color=(1, 1, 0), name="SAS_tangent")
-            self.logic.draw_line(P6, P7, color=(1, 1, 0))
+            self.logic.draw_line(P13, P14, color=(1, 1, 0))
 
             sas_distance = abs(d - radius)
 
         # --- Glenoid Height (GH) ---
-        gh_distance = np.linalg.norm(P4 - P3)
-      #  self.logic.draw_line(P3, P4, color=(1, 0, 1), name="GH")
+        # Old: norm(P4 - P3) -> glenoid upper, glenoid lower
+        # New mapping: old P4->P11, old P3->P12
+        gh_distance = np.linalg.norm(P11 - P12)
+      #  self.logic.draw_line(P12, P11, color=(1, 0, 1), name="GH")
 
         # --- Scapular Neck Length (SNL) ---
-        snl_distance = np.linalg.norm(P5 - P3)
+        # Old: norm(P5 - P3) -> scapular neck medial, glenoid lower
+        # New mapping: old P5->P15, old P3->P12
+        snl_distance = np.linalg.norm(P15 - P12)
 
         # --- Scapular Neck Angle (SNA) ---
-        sna_angle = self.logic.compute_angle(P4, P3, P5)
-   #     self.logic.draw_line(P4, P3, color=(1, 0.5, 0), name="SNA")
-   #     self.logic.draw_line(P3, P5, color=(1, 0.5, 0))
+        # Old: compute_angle(P4, P3, P5) -> glenoid upper, glenoid lower, scapular neck medial
+        # New mapping: old P4->P11, old P3->P12, old P5->P15
+        sna_angle = self.logic.compute_angle(P11, P12, P15)
+   #     self.logic.draw_line(P11, P12, color=(1, 0.5, 0), name="SNA")
+   #     self.logic.draw_line(P12, P15, color=(1, 0.5, 0))
 
 
         # --- Glenoid inclination angle (GIA) ---
        # gia_angle = 180 - self.logic.compute_beta_angle({
-       #     'P1': {'x': P1[0], 'y': P1[1]},
-       #     'P2': {'x': P2[0], 'y': P2[1]},
-       #     'P3': {'x': P3[0], 'y': P3[1]},
-       #     'P4': {'x': P4[0], 'y': P4[1]}
+       #     'P1': {'x': P9[0], 'y': P9[1]},
+       #     'P2': {'x': P10[0], 'y': P10[1]},
+       #     'P3': {'x': P12[0], 'y': P12[1]},
+       #     'P4': {'x': P11[0], 'y': P11[1]}
        # })
-       # self.logic.draw_line(P1, P2, color=(0.8, 0.2, 1), name="GIA")
-       # self.logic.draw_line(P3, P4, color=(0.8, 0.2, 1))
+       # self.logic.draw_line(P9, P10, color=(0.8, 0.2, 1), name="GIA")
+       # self.logic.draw_line(P12, P11, color=(0.8, 0.2, 1))
 
         # --- Distalization shoulder angle (DSA) ---
-        dsa_angle = self.logic.compute_angle(P8, P4, P6)
-        self.logic.draw_line(P8, P4, color=(0.9, 0.4, 0.6), name="DSA")
-        self.logic.draw_line(P4, P6, color=(0.9, 0.4, 0.6))
+        # Old: compute_angle(P8, P4, P6) -> lateral bone-cartilage junction (merged into old P9),
+        #      glenoid upper, lateral acromion
+        # New mapping: old P8->P6 (merged), old P4->P11, old P6->P13
+        dsa_angle = self.logic.compute_angle(P6, P11, P13)
+        self.logic.draw_line(P6, P11, color=(0.9, 0.4, 0.6), name="DSA")
+        self.logic.draw_line(P11, P13, color=(0.9, 0.4, 0.6))
 
         # --- Lateralization shoulder angle (LSA) ---
-        lsa_angle = self.logic.compute_angle(P12, P6, P4)
-        self.logic.draw_line(P12, P6, color=(0.9, 0.4, 0.6), name="LSA")
-        self.logic.draw_line(P6, P4, color=(0.9, 0.4, 0.6))
+        # Old: compute_angle(P12, P6, P4) -> GT lateral edge, lateral acromion, glenoid upper
+        # New mapping: old P12->P5, old P6->P13, old P4->P11
+        lsa_angle = self.logic.compute_angle(P5, P13, P11)
+        self.logic.draw_line(P5, P13, color=(0.9, 0.4, 0.6), name="LSA")
+        self.logic.draw_line(P13, P11, color=(0.9, 0.4, 0.6))
 
         # --- Humeral Axis ---
-        mid1 = (P13 + P14) / 2
-        mid2 = (P15 + P16) / 2
+        # Old: mid(P13,P14) to mid(P15,P16) -> diaphysis proximal/distal internal cortex
+        # New mapping: old P13->P1, old P14->P2, old P15->P3, old P16->P4
+        mid1 = (P1 + P2) / 2
+        mid2 = (P3 + P4) / 2
         self.logic.draw_line(mid1, mid2, color=(1, 1, 0), name="HumeralAxis")
         axis_vector = mid2 - mid1
         axis_unit = axis_vector / np.linalg.norm(axis_vector)
@@ -529,7 +584,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "LSA": lsa_angle,
             "HumeralAxis": axis_vector
         }
-       # self.logic.saveMetricsToCSV(metrics, patientID, outputDir)
+       # self.logic.saveCombinedCSV(markupNode, metrics, patientID, timepoint, outputDir)
         self.currentMetrics = metrics
         # --- Format results as table ---
         text = (
@@ -612,46 +667,57 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             points[label] = {"x": pos[0], "y": pos[1], "z": pos[2]}
         return points
 
-    # --- Save data in a .csv file ---
-    def saveMetricsToCSV(self, metrics, patientID, outputDir):
+    # --- Save fiducials + metrics together in a single CSV file ---
+    def saveCombinedCSV(self, markupNode, metrics, patientID, timepoint, outputDir):
         """
-        Save metrics dictionary to CSV file in analysis_beta folder.
+        Write a single CSV file containing two sections:
+          1) FIDUCIALS  - one row per fiducial point (ID, Label, X, Y, Z)
+          2) PARAMETERS - one row per computed metric (Metric, Value)
+        The two sections are separated by a blank line and a section header,
+        acting as a lightweight substitute for two Excel sheets.
         """
-
         if not os.path.exists(outputDir):
             slicer.util.errorDisplay("Selected output folder does not exist.")
             return
 
-        fileName = f"{patientID}_metrics.csv"
+        fileName = f"{patientID}_{timepoint}_combined.csv"
         filePath = os.path.join(outputDir, fileName)
 
         try:
+            points = self.get_fiducial_positions(markupNode)
+
             with open(filePath, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
+
+                # --- Section 1: Fiducials ---
+                writer.writerow(["FIDUCIALS"])
+                writer.writerow(["ID", "Label", "X", "Y", "Z"])
+                for i in range(markupNode.GetNumberOfControlPoints()):
+                    label = markupNode.GetNthControlPointLabel(i)
+                    pos = points.get(label, {"x": "", "y": "", "z": ""})
+                    writer.writerow([i + 1, label, pos["x"], pos["y"], pos["z"]])
+
+                # --- Blank line between sections ---
+                writer.writerow([])
+
+                # --- Section 2: Parameters ---
+                writer.writerow(["PARAMETERS"])
                 writer.writerow(["Metric", "Value"])
                 for key, value in metrics.items():
-                    writer.writerow([key, value])
+                    if isinstance(value, (list, tuple, np.ndarray)):
+                        value_str = ";".join(str(v) for v in np.array(value).flatten())
+                    else:
+                        value_str = str(value)
+                    writer.writerow([key, value_str])
 
-            slicer.util.showStatusMessage(f"Metrics saved to: {filePath}", 5000)
+            slicer.util.showStatusMessage(f"Fiducials + metrics saved to: {filePath}", 5000)
 
         except PermissionError:
             slicer.util.errorDisplay("Permission denied. Please choose another folder.")
         except Exception as e:
-            slicer.util.errorDisplay(f"Failed to save CSV: {e}")
+            slicer.util.errorDisplay(f"Failed to save combined CSV: {e}")
 
-        try:
-                with open(filePath, 'w', newline='') as csvfile:
-                    writer = csv.writer(csvfile)
-                    writer.writerow(["Metric", "Value"])
-                    for key, value in metrics.items():
-                        if isinstance(value, (list, tuple, np.ndarray)):
-                            value_str = ";".join(str(v) for v in np.array(value).flatten())
-                        else:
-                            value_str = str(value)
-                        writer.writerow([key, value_str])
-                slicer.util.showStatusMessage(f"Metrics saved to: {filePath}", 5000)
-        except Exception as e:
-            slicer.util.errorDisplay(f"Failed to save CSV: {e}")
+
 
     # --- Compute beta angle ---
     def compute_beta_angle(self, points):
