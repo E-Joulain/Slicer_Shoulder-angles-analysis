@@ -123,20 +123,20 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         #   old P7  -> new P14 (Medial acromion)
         #   old P5  -> new P15 (Medial part of the scapular neck)
         self.fiducialLabels = {
-            "P1": "Diaphysis proximal medial",
-            "P2": "Diaphysis proximal lateral",
-            "P3": "Diaphysis distal medial",
-            "P4": "Diaphysis distal lateral",
-            "P5": "GT lateral angle",
-            "P6": "Head-GT junction",
-            "P7": "Head-calcar junction",
+            "P1": "Diaphysis proximal medial - external cortex",
+            "P2": "Diaphysis proximal lateral - external cortex",
+            "P3": "Diaphysis distal medial - external cortex",
+            "P4": "Diaphysis distal lateral - external cortex",
+            "P5": "Lateral greater tuberosity (GT)",
+            "P6": "Upper head-calcar junction",
+            "P7": "Lower head-calcar junction",
             "P8": "Head surface",
             "P9": "Medial fossa",
             "P10": "Lateral fossa",
             "P11": "Upper glenoid",
             "P12": "Lower glenoid",
-            "P13": "Lateral acromion",
-            "P14": "Medial acromion",
+            "P13": "Lateroinferior acromion",
+            "P14": "Medio-inferior acromion",
             "P15": "Medial part of the scapular neck",
         }
 
@@ -172,6 +172,22 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.sideSelector.addItem("Right")
         self.sideSelector.addItem("Left")
         self.selectionFormLayout.addRow("Select Side:", self.sideSelector)
+
+        # X-ray type selection (native / anatomic prosthesis / reverse prosthesis)
+        # This determines which metrics are computed in onCalculateMetrics:
+        #   - Native & Anatomic prosthesis: standard metric set (unchanged)
+        #   - Reverse prosthesis: standard metric set + Glenosphere Inclination (GI) + Overhang
+        self.xrayTypeSelector = qt.QComboBox()
+        self.xrayTypeSelector.addItem("Native")
+        self.xrayTypeSelector.addItem("Anatomic prosthesis")
+        self.xrayTypeSelector.addItem("Reverse prosthesis")
+        self.xrayTypeSelector.setToolTip(
+            "Select the type of shoulder X-ray being analyzed. "
+            "For 'Reverse prosthesis', place P6 and P7 on the glenosphere rim "
+            "(instead of the native humeral head contour) to enable the additional "
+            "Glenosphere Inclination and Overhang measurements."
+        )
+        self.selectionFormLayout.addRow("X-ray type:", self.xrayTypeSelector)
 
         # Patient ID input
         self.patientIdLineEdit = qt.QLineEdit()
@@ -396,8 +412,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             P3  - Diaphysis distal medial
             P4  - Diaphysis distal lateral
             P5  - GT lateral angle
-            P6  - Head-GT junction
-            P7  - Head-calcar junction
+            P6  - Head-GT junction (placed on the glenosphere rim instead, for Reverse prosthesis X-rays)
+            P7  - Head-calcar junction (placed on the glenosphere rim instead, for Reverse prosthesis X-rays)
             P8  - Head surface
             P9  - Medial fossa
             P10 - Lateral fossa
@@ -410,6 +426,15 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         All geometric formulas below keep the exact same anatomical logic as
         before; only the point indices have been remapped to match this new
         numbering (see mapping comment in setup()).
+
+        X-ray type (self.xrayTypeSelector) controls which metrics are computed:
+            - Native / Anatomic prosthesis: standard metric set only.
+            - Reverse prosthesis: standard metric set PLUS two additional
+              metrics that rely on the glenosphere axis (P6->P7):
+                - GI  (Glenosphere Inclination): angle between the fossa axis
+                  (P9->P10) and the glenosphere axis (P6->P7).
+                - Overhang: signed distance from P4 to P12, projected along
+                  the glenosphere axis (P6->P7).
         """
         nodeName = f"Fiducials_{timepoint}"
         outputDir = self.outputDirectoryButton.currentPath
@@ -570,6 +595,27 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         axis_unit = axis_vector / np.linalg.norm(axis_vector)
         axis_length = np.linalg.norm(mid2 - mid1)
 
+        # --- Reverse-prosthesis-only metrics ---
+        # Only computed when the selected X-ray type is "Reverse prosthesis".
+        # For these X-rays, P6/P7 are placed on the glenosphere rim instead of
+        # the native humeral head contour, so P6->P7 represents the
+        # glenosphere (GS) axis.
+        xrayType = self.xrayTypeSelector.currentText if hasattr(self, "xrayTypeSelector") else "Native"
+        is_reverse = (xrayType == "Reverse prosthesis")
+
+        gi_angle = None
+        overhang_distance = None
+
+        if is_reverse:
+            # --- Glenosphere Inclination (GI) ---
+            # Angle between the fossa axis (P9->P10) and the glenosphere axis (P6->P7).
+            gi_angle = self.logic.compute_angle_between_vectors(P10 - P9, P7 - P6)
+            self.logic.draw_line(P9, P10, color=(0, 1, 1), name="GI_fossa_axis")
+            self.logic.draw_line(P6, P7, color=(0, 1, 1), name="GI_GS_axis")
+
+            # --- Overhang ---
+            # Signed distance from P4 to P12, projected along the glenosphere axis (P6->P7).
+            overhang_distance = self.logic.project_vector_onto_axis(P4 - P12, P6, P7)
 
         # Save metrics
         metrics = {
@@ -584,6 +630,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "LSA": lsa_angle,
             "HumeralAxis": axis_vector
         }
+        if is_reverse:
+            metrics["GI"] = gi_angle
+            metrics["Overhang"] = overhang_distance
        # self.logic.saveCombinedCSV(markupNode, metrics, patientID, timepoint, outputDir)
         self.currentMetrics = metrics
         # --- Format results as table ---
@@ -600,6 +649,11 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             f"DSA  : {dsa_angle:.1f}°\n"
             f"LSA  : {lsa_angle:.1f}°\n"
         )
+        if is_reverse:
+            text += (
+                f"GI   : {gi_angle:.1f}°\n"
+                f"Overhang : {overhang_distance:.1f} mm\n"
+            )
 
 
         # --- Display in slice views ---
@@ -743,6 +797,42 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         BC_norm = BC / np.linalg.norm(BC)
         dot = np.clip(np.dot(BA_norm, BC_norm), -1.0, 1.0)
         return np.degrees(np.arccos(dot))
+
+    # --- Angle between two free vectors (not sharing a common vertex point) ---
+    def compute_angle_between_vectors(self, v1, v2):
+        """
+        Compute the angle (in degrees, 0-90) between two direction vectors,
+        e.g. between an axis defined by two points and another axis defined
+        by two other points. Unlike compute_angle, this does not require a
+        shared vertex - each axis is given directly as a vector.
+
+        Used for Glenosphere Inclination (GI): angle between the fossa axis
+        (P9->P10) and the glenosphere axis (P6->P7).
+        """
+        v1_norm = v1 / np.linalg.norm(v1)
+        v2_norm = v2 / np.linalg.norm(v2)
+        dot = np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0)
+        angle = np.degrees(np.arccos(dot))
+        # Report the acute angle between the two lines (0-90 deg), since an
+        # axis has no inherent direction and the obtuse/acute angle depends
+        # only on arbitrary point placement order.
+        return min(angle, 180 - angle)
+
+    # --- Signed projection of a vector onto an axis defined by two points ---
+    def project_vector_onto_axis(self, vec, axisA, axisB):
+        """
+        Project `vec` onto the axis defined by (axisA -> axisB) and return
+        the signed length of that projection.
+
+        Used for Overhang: signed distance from P4 to P12 (vec = P4 - P12),
+        projected along the glenosphere axis (P6->P7, axisA=P6, axisB=P7).
+        """
+        axis_vec = axisB - axisA
+        axis_len = np.linalg.norm(axis_vec)
+        if axis_len == 0:
+            return 0.0
+        axis_unit = axis_vec / axis_len
+        return float(np.dot(vec, axis_unit))
 
     # --- Distance point-to-line ---
     def distance_point_to_line(self, P, A, B):
