@@ -23,13 +23,15 @@ To use Shoulder-angles-analysis with 3D Slicer, you'll need to download and inst
 This extension supports the stable and preview versions of 3D Slicer, version 5.3 or higher. For more information on installing 3D Slicer, check out the 3D Slicer Documentation
 
 ## Add extension
-Download or clone the repository.
+Download or clone the repository. Unzip the folder where you want on your laptop.
+<img width="989" height="449" alt="image" src="https://github.com/user-attachments/assets/6cede515-cde3-4bb8-a80b-27fd6070dd62" />
+
 
 In 3D Slicer, open Edit → Application Settings → Modules → Additional Module Paths:
 
 <img width="917" height="667" alt="image" src="https://github.com/user-attachments/assets/97d970be-c633-44fb-af2b-8361d4df6609" />
 
-Add the folder "Beta_angle_ana" containing the extension and restart Slicer. The path should look like, for example: "C:\Users\Name\Downloads\Shoulder-angles-analysis-main\Beta_angle_ana". 
+Add the folder "...\Slicer_Shoulder-angles-analysis-main\Beta_angle_ana" containing the extension and restart Slicer. The path should look like, for example: "C:\Users\Name\Downloads\Shoulder-angles-analysis-main\Beta_angle_ana". 
 
 The module will appear under Custom Modules as beta_angle_analysis. 
 <img width="1920" height="821" alt="image" src="https://github.com/user-attachments/assets/c0155be5-5e4b-42b1-837c-b51f1ce7fb81" />
