@@ -36,6 +36,7 @@ Add the folder "...\Slicer_Shoulder-angles-analysis-main\Beta_angle_ana" contain
 The module will appear under Custom Modules as beta_angle_analysis. 
 <img width="1920" height="821" alt="image" src="https://github.com/user-attachments/assets/c0155be5-5e4b-42b1-837c-b51f1ce7fb81" />
 
+# Update the extension (WRITTING IN PROGRESS)
 
 # Workflow
 
