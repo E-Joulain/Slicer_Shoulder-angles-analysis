@@ -21,13 +21,6 @@ from slicer import vtkMRMLScalarVolumeNode
 
 
 class Beta_angle_ana(ScriptedLoadableModule):
-    """
-    Beta_angle_ana
-    A scripted loadable module template adapted and refactored from your original script.
-
-    This class registers the module in Slicer (title, categories, help text...) and
-    connects the sample-data registration to application startup.
-    """
 
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
@@ -38,7 +31,7 @@ class Beta_angle_ana(ScriptedLoadableModule):
         self.parent.contributors = ["Elise Joulain (UNIGE)"]
         self.parent.helpText = _("""
 This module assists with placing fiducials on shoulder X-rays and computing various
-metrics (beta angle and related). It was refactored for clarity and stability.
+metrics (beta angle and related).
 """)
         self.parent.acknowledgementText = _(
             """
@@ -82,8 +75,6 @@ def registerSampleData():
 
 @parameterNodeWrapper
 class Beta_angle_anaParameterNode:
-    """Parameter node wrapper that defines typed parameters and defaults."""
-
     inputVolume: vtkMRMLScalarVolumeNode
     imageThreshold: Annotated[float, WithinRange(-100, 500)] = 100
     invertThreshold: bool = False
@@ -92,8 +83,6 @@ class Beta_angle_anaParameterNode:
 
 
 class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
-    """Refactored widget class: builds UI, connects callbacks and delegates heavy work to Logic."""
-
     def __init__(self, parent=None) -> None:
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
@@ -104,40 +93,23 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def setup(self) -> None:
         ScriptedLoadableModuleWidget.setup(self)
 
-        # Simple mapping of fiducial labels used in the UI table
-        # NOTE: numbering updated (15 points total). Mapping vs the previous
-        # 16-point scheme (for traceability):
-        #   old P13 -> new P1   (Diaphysis proximal medial)
-        #   old P14 -> new P2   (Diaphysis proximal lateral)
-        #   old P15 -> new P3   (Diaphysis distal medial)
-        #   old P16 -> new P4   (Diaphysis distal lateral)
-        #   old P12 -> new P5   (GT lateral angle)
-        #   old P9 + old P8 -> new P6  (Head-GT junction, merged duplicate point)
-        #   old P10 -> new P7  (Head-calcar junction)
-        #   old P11 -> new P8  (Head surface)
-        #   old P1  -> new P9  (Medial fossa)
-        #   old P2  -> new P10 (Lateral fossa)
-        #   old P4  -> new P11 (Upper glenoid)
-        #   old P3  -> new P12 (Lower glenoid)
-        #   old P6  -> new P13 (Lateral acromion)
-        #   old P7  -> new P14 (Medial acromion)
-        #   old P5  -> new P15 (Medial part of the scapular neck)
         self.fiducialLabels = {
-            "P1": "Diaphysis proximal medial - external cortex",
-            "P2": "Diaphysis proximal lateral - external cortex",
-            "P3": "Diaphysis distal medial - external cortex",
-            "P4": "Diaphysis distal lateral - external cortex",
-            "P5": "Lateral greater tuberosity (GT)",
-            "P6": "Upper head-calcar junction",
-            "P7": "Lower head-calcar junction",
-            "P8": "Head surface",
-            "P9": "Medial fossa",
-            "P10": "Lateral fossa",
-            "P11": "Upper glenoid",
-            "P12": "Lower glenoid",
-            "P13": "Lateroinferior acromion",
-            "P14": "Medio-inferior acromion",
-            "P15": "Medial part of the scapular neck",
+            "P1": "Diaphysis proximal medial - external border of cortex",
+            "P2": "Diaphysis proximal lateral - external border of cortex",
+            "P3": "Diaphysis distal medial - external border of cortex",
+            "P4": "Diaphysis distal lateral - external border of cortex",
+            "P5": "Latero-superior greater tuberosity (GT)",
+            "P6": "Upper head greater tuberosity junction",
+            "P7": "Lower head calcar junction",
+            "P8": "Mid head calcar surface",
+            "P9": "Lateral fossa ",
+            "P10": "Medial fossa",
+            "P11": "Mid fossa",
+            "P12": "Upper glenoid",
+            "P13": "Lower glenoid",
+            "P14": "Lateroinferior acromion",
+            "P15": "Medio-inferior acromion",
+            "P16": "Medial part of the scapular neck",
         }
 
         # Main layout and form
@@ -151,6 +123,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.inputVolumeSelector.currentNodeChanged.connect(self.onInputVolumeChanged)
         self.layout.addWidget(qt.QLabel("Choose the volume on which you want to work:"))
         self.layout.addWidget(self.inputVolumeSelector)
+
         # Cosmetic style (optional)
         self.inputVolumeSelector.setStyleSheet("""
                     QComboBox {
@@ -174,7 +147,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.selectionFormLayout.addRow("Select Side:", self.sideSelector)
 
         # X-ray type selection (native / anatomic prosthesis / reverse prosthesis)
-        # This determines which metrics are computed in onCalculateMetrics:
         #   - Native & Anatomic prosthesis: standard metric set (unchanged)
         #   - Reverse prosthesis: standard metric set + Glenosphere Inclination (GI) + Overhang
         self.xrayTypeSelector = qt.QComboBox()
@@ -258,7 +230,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Reset button
         self.resetFiducialsButton = qt.QPushButton("Reset fiducials nodes")
         self.resetFiducialsButton.toolTip = "Remove all beta_angle placed fiducial nodes"
-        self.resetFiducialsButton.connect('clicked(bool)', self.onResetFiducials_preop)
+        self.resetFiducialsButton.connect('clicked(bool)', self.onResetFiducials)
         self.beta_angleLayout.addWidget(self.resetFiducialsButton)
 
         # Layout margins and spacing
@@ -281,7 +253,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         qt.QMessageBox.information(slicer.util.mainWindow(), "DICOM Import",
                                    "The DICOM browser has been opened.\nLoad your X-ray image, then return here to place fiducials.")
 
-    def onResetFiducials_preop(self):
+    def onResetFiducials(self):
         scene = slicer.mrmlScene
 
         if not slicer.util.confirmYesNoDisplay("Are you sure you want to remove all fiducial nodes?"):
@@ -291,12 +263,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             name = node.GetName() or ""
             if "beta_angle" in name.lower():
                 scene.RemoveNode(node)
-
-        # Remove lines (angles / distances)
         for node in scene.GetNodesByClass("vtkMRMLMarkupsLineNode"):
             scene.RemoveNode(node)
-
-        # Remove arcs
         for node in scene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             scene.RemoveNode(node)
 
@@ -306,15 +274,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.markupNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
         if not self.markupNode:
             self.markupNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", nodeName)
-            # Register observer to automatically label points
             self.markupNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointAddedEvent, self.onFiducialAdded)
 
         if "beta_angle" in timepoint.lower():
             displayNode = self.markupNode.GetDisplayNode()
             if displayNode:
-                displayNode.SetSelectedColor(0, 1, 0)  # green
-
-        # Start place mode (1 point at a time)
+                displayNode.SetSelectedColor(0, 1, 0)  #
         slicer.modules.markups.logic().StartPlaceMode(1)
 
     def onFiducialAdded(self, caller, event):
@@ -323,12 +288,54 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if n <= len(self.fiducialLabels):
             fidName = f"P{n}"
             caller.SetNthControlPointLabel(n - 1, fidName)
+
+            if fidName == "P16":
+                self.drawGuideLineForP16(caller)
         else:
             # Stop placement if too many points
             interactionNode = slicer.app.applicationLogic().GetInteractionNode()
             interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)
             slicer.util.showStatusMessage("Maximum fiducials placed — placement stopped.", 3000)
 
+    def drawGuideLineForP16(self, markupNode, half_length=80.0):
+        """
+        Draw a temporary guide line through P12, parallel to the fossa axis
+        (TLS fit through P9, P10, P11), to help the user place P16 along the
+        expected direction of the scapular neck.
+        """
+        try:
+            points = self.logic.get_fiducial_positions(markupNode)
+            required = ("P9", "P10", "P11", "P12")
+            missing = [p for p in required if p not in points]
+            if missing:
+                logging.warning("P16 guide line skipped: missing %s", missing)
+                return
+
+            P9 = np.array([points['P9']['x'], points['P9']['y'], 0.0])
+            P10 = np.array([points['P10']['x'], points['P10']['y'], 0.0])
+            P11 = np.array([points['P11']['x'], points['P11']['y'], 0.0])
+            P12 = np.array([points['P12']['x'], points['P12']['y'], 0.0])
+
+            _, fossa_dir = self.logic.fit_line_tls([P9, P10, P11])
+            if np.dot(fossa_dir, P10 - P9) < 0:
+                fossa_dir = -fossa_dir
+
+            guide_start = P12 - half_length * fossa_dir
+            guide_end = P12 + half_length * fossa_dir
+            self.logic.draw_line(guide_start, guide_end, color=(0, 1, 0),
+                                 name="P16_GuideLine") #locked=True
+            logging.info("P16 guide line drawn from %s to %s", guide_start, guide_end)
+
+
+            selectionNode = slicer.app.applicationLogic().GetSelectionNode()
+            selectionNode.SetActivePlaceNodeClassName(markupNode.GetClassName())
+            selectionNode.SetActivePlaceNodeID(markupNode.GetID())
+            slicer.modules.markups.logic().StartPlaceMode(1)
+
+        except Exception:
+            logging.exception("drawFossaGuideLineForP16 failed")
+
+############## to delete ?
     def get_input_volume_spacing(self):
         """Return spacing (x, y) of selected input volume or None with an error message."""
         try:
@@ -364,7 +371,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.errorDisplay("Please compute metrics before exporting.")
             return
 
-        # --- Ask user for folder ---
         outputDir = qt.QFileDialog.getExistingDirectory(
             slicer.util.mainWindow(),
             "Select output folder"
@@ -381,7 +387,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
 
         try:
-            # --- Save fiducials + metrics together in a single CSV file ---
             self.logic.saveCombinedCSV(node, self.currentMetrics, patientID, timepoint, outputDir)
 
             slicer.util.showStatusMessage("Fiducials + metrics saved successfully!", 5000)
@@ -405,27 +410,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onCalculateMetrics(self, timepoint: str):
         """Compute all metrics from fiducials and draw them.
-
-        Point numbering (15 fiducials total) and anatomical meaning:
-            P1  - Diaphysis proximal medial
-            P2  - Diaphysis proximal lateral
-            P3  - Diaphysis distal medial
-            P4  - Diaphysis distal lateral
-            P5  - GT lateral angle
-            P6  - Head-GT junction (placed on the glenosphere rim instead, for Reverse prosthesis X-rays)
-            P7  - Head-calcar junction (placed on the glenosphere rim instead, for Reverse prosthesis X-rays)
-            P8  - Head surface
-            P9  - Medial fossa
-            P10 - Lateral fossa
-            P11 - Upper glenoid
-            P12 - Lower glenoid
-            P13 - Lateral acromion
-            P14 - Medial acromion
-            P15 - Medial part of the scapular neck
-
-        All geometric formulas below keep the exact same anatomical logic as
-        before; only the point indices have been remapped to match this new
-        numbering (see mapping comment in setup()).
 
         X-ray type (self.xrayTypeSelector) controls which metrics are computed:
             - Native / Anatomic prosthesis: standard metric set only.
@@ -471,129 +455,97 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         P13 = np.array([points['P13']['x'], points['P13']['y'], points['P13']['z']])
         P14 = np.array([points['P14']['x'], points['P14']['y'], points['P14']['z']])
         P15 = np.array([points['P15']['x'], points['P15']['y'], points['P15']['z']])
+        P16 = np.array([points['P16']['x'], points['P16']['y'], points['P16']['z']])
+
+        # --- Fossa axis (TLS fit through 3 points) ---
+        fossa_centroid, fossa_dir = self.logic.fit_line_tls([P9, P10, P11])
+        if np.dot(fossa_dir, P10 - P9) < 0:
+            fossa_dir = -fossa_dir
+        #self.logic.draw_line(fossa_dir, color=(0.9, 0.4, 0.6), name="Fossa axis")
 
         # --- Beta angle ---
-        # Old logic used fossa cortex line (old P1,P2) vs glenoid line (old P3,P4)
-        # New mapping: old P1->P9, old P2->P10, old P3->P12, old P4->P11
-        beta_angle = self.logic.compute_beta_angle({
-            'P1': {'x': P9[0], 'y': P9[1]},
-            'P2': {'x': P10[0], 'y': P10[1]},
-            'P3': {'x': P12[0], 'y': P12[1]},
-            'P4': {'x': P11[0], 'y': P11[1]},
-        })
-        # Compute intersection in XY plane
+        # fossa axis (fit from P9, P10, P11) vs glenoid line (lower P13 -> upper P12)
+        beta_angle = self.logic.compute_beta_angle_from_vectors(fossa_dir, P12 - P13)
+
+        # Vertex for the arc drawing: intersection of the raw P9-P10 fossa segment with the glenoid line
         x1, y1 = P9[:2]
         x2, y2 = P10[:2]
-        x3, y3 = P12[:2]
-        x4, y4 = P11[:2]
+        x3, y3 = P13[:2]
+        x4, y4 = P12[:2]
 
         denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
         if denom == 0:
-            # Lines are parallel
             intersect = P10.copy()
         else:
             px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denom
             py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denom
             intersect = np.array([px, py, 0.0])
 
-        # Draw arc with the intersection as vertex
-      #  self.logic.draw_arc(intersect, P9, P11, beta_angle, name="BetaAngleArc", color=(1, 1, 0))
+        self.logic.draw_arc(intersect, P9, P12, beta_angle, name="BetaAngleArc", color=(1, 1, 0), num_points=5)
+
 
         # --- Critical Shoulder Angle (CSA) ---
-        # Old: compute_angle(P4, P3, P6) -> glenoid upper, glenoid lower, lateral acromion
-        # New mapping: old P4->P11, old P3->P12, old P6->P13
-        csa_angle = self.logic.compute_angle(P11, P12, P13)
-        self.logic.draw_line(P12, P11, color=(0.5, 0, 1), name="CSA")
-        self.logic.draw_line(P12, P13, color=(0.5, 0, 1))
+
+        csa_angle = self.logic.compute_angle(P12, P13, P14)
+        #self.logic.draw_line(P13, P12, color=(0.5, 0, 1), name="CSA")
+        #self.logic.draw_line(P13, P14, color=(0.5, 0, 1))
 
         # --- Subacromial space (SAS) ---
-        # Old: circle on humeral head contour points (old P9, P10, P11)
-        # New mapping: old P9->P6, old P10->P7, old P11->P8
         center, radius = self.logic.compute_circle_center(P6, P7, P8)
 
         if center is not None:
             self.logic.draw_circle(center, radius, name="HumeralHeadCircle")
 
-            # Direction of acromial line
-            # Old: old P6 (lateral acromion), old P7 (medial acromion)
-            # New mapping: old P6->P13, old P7->P14
-            AB = P14 - P13
+            AB = P15 - P14
             AB_norm = AB / np.linalg.norm(AB)
-
-            # Normal vector (perpendicular)
             normal = np.array([-AB_norm[1], AB_norm[0], 0])
+            d = self.logic.distance_point_to_line(center, P14, P15)
 
-            # Signed distance from center to acromial line
-            d = self.logic.distance_point_to_line(center, P13, P14)
-
-            # --- Choose correct side for tangent ---
-            vec = center - P13
+            vec = center - P14
             sign = np.sign(np.dot(vec, normal))
-
-            # Tangent point on circle
             tangent_point = center - sign * radius * normal
 
-            # Draw tangent line (parallel)
             tangent_start = tangent_point - AB_norm * 50
             tangent_end = tangent_point + AB_norm * 50
-            self.logic.draw_line(tangent_start, tangent_end, color=(1, 1, 0), name="SAS_tangent")
-            self.logic.draw_line(P13, P14, color=(1, 1, 0))
+          #  self.logic.draw_line(tangent_start, tangent_end, color=(1, 1, 0), name="SAS_tangent")
+            self.logic.draw_line(P14, P15, color=(1, 1, 0))
 
             sas_distance = abs(d - radius)
 
-        # --- Glenoid Height (GH) ---
-        # Old: norm(P4 - P3) -> glenoid upper, glenoid lower
-        # New mapping: old P4->P11, old P3->P12
-        gh_distance = np.linalg.norm(P11 - P12)
-      #  self.logic.draw_line(P12, P11, color=(1, 0, 1), name="GH")
+            # --- Glenoid Height (GH) ---
+            gh_distance = np.linalg.norm(P12 - P13)
 
-        # --- Scapular Neck Length (SNL) ---
-        # Old: norm(P5 - P3) -> scapular neck medial, glenoid lower
-        # New mapping: old P5->P15, old P3->P12
-        snl_distance = np.linalg.norm(P15 - P12)
+            # --- Scapular Neck Length (SNL) ---
+            snl_distance = np.linalg.norm(P16 - P13)
 
-        # --- Scapular Neck Angle (SNA) ---
-        # Old: compute_angle(P4, P3, P5) -> glenoid upper, glenoid lower, scapular neck medial
-        # New mapping: old P4->P11, old P3->P12, old P5->P15
-        sna_angle = self.logic.compute_angle(P11, P12, P15)
-   #     self.logic.draw_line(P11, P12, color=(1, 0.5, 0), name="SNA")
-   #     self.logic.draw_line(P12, P15, color=(1, 0.5, 0))
+            # --- Scapular Neck Angle (SNA) ---
+            sna_angle = self.logic.compute_angle(P12, P13, P16)
 
+            # --- Distalization shoulder angle (DSA) ---
+            dsa_angle = self.logic.compute_angle(P6, P12, P14)
+           # self.logic.draw_line(P6, P12, color=(0.9, 0.4, 0.6), name="DSA")
+           # self.logic.draw_line(P12, P14, color=(0.9, 0.4, 0.6))
 
-        # --- Glenoid inclination angle (GIA) ---
-       # gia_angle = 180 - self.logic.compute_beta_angle({
-       #     'P1': {'x': P9[0], 'y': P9[1]},
-       #     'P2': {'x': P10[0], 'y': P10[1]},
-       #     'P3': {'x': P12[0], 'y': P12[1]},
-       #     'P4': {'x': P11[0], 'y': P11[1]}
-       # })
-       # self.logic.draw_line(P9, P10, color=(0.8, 0.2, 1), name="GIA")
-       # self.logic.draw_line(P12, P11, color=(0.8, 0.2, 1))
-
-        # --- Distalization shoulder angle (DSA) ---
-        # Old: compute_angle(P8, P4, P6) -> lateral bone-cartilage junction (merged into old P9),
-        #      glenoid upper, lateral acromion
-        # New mapping: old P8->P6 (merged), old P4->P11, old P6->P13
-        dsa_angle = self.logic.compute_angle(P6, P11, P13)
-        self.logic.draw_line(P6, P11, color=(0.9, 0.4, 0.6), name="DSA")
-        self.logic.draw_line(P11, P13, color=(0.9, 0.4, 0.6))
-
-        # --- Lateralization shoulder angle (LSA) ---
-        # Old: compute_angle(P12, P6, P4) -> GT lateral edge, lateral acromion, glenoid upper
-        # New mapping: old P12->P5, old P6->P13, old P4->P11
-        lsa_angle = self.logic.compute_angle(P5, P13, P11)
-        self.logic.draw_line(P5, P13, color=(0.9, 0.4, 0.6), name="LSA")
-        self.logic.draw_line(P13, P11, color=(0.9, 0.4, 0.6))
+            # --- Lateralization shoulder angle (LSA) ---
+            lsa_angle = self.logic.compute_angle(P5, P14, P12)
+          #  self.logic.draw_line(P5, P14, color=(0.9, 0.4, 0.6), name="LSA")
+          #  self.logic.draw_line(P14, P12, color=(0.9, 0.4, 0.6))
 
         # --- Humeral Axis ---
-        # Old: mid(P13,P14) to mid(P15,P16) -> diaphysis proximal/distal internal cortex
-        # New mapping: old P13->P1, old P14->P2, old P15->P3, old P16->P4
-        mid1 = (P1 + P2) / 2
-        mid2 = (P3 + P4) / 2
+        # P1, P3 = inner cortical edge; P2, P4 = outer cortical edge
+        res = self.logic.central_axis_from_cortices([P1, P3], [P2, P4])
+
+        mid1 = res["p_start"]
+        mid2 = res["p_end"]
         self.logic.draw_line(mid1, mid2, color=(1, 1, 0), name="HumeralAxis")
+
+        axis_unit = res["direction"]
         axis_vector = mid2 - mid1
-        axis_unit = axis_vector / np.linalg.norm(axis_vector)
-        axis_length = np.linalg.norm(mid2 - mid1)
+        axis_length = np.linalg.norm(axis_vector)
+
+        logging.info("Humeral axis: %d iter | half-width %.2f mm | "
+                     "asymmetry %.4f mm",
+                     res["n_iter"], res["half_width_mean"], res["asymmetry_rms"])
 
         # --- Reverse-prosthesis-only metrics ---
         # Only computed when the selected X-ray type is "Reverse prosthesis".
@@ -608,14 +560,18 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         if is_reverse:
             # --- Glenosphere Inclination (GI) ---
-            # Angle between the fossa axis (P9->P10) and the glenosphere axis (P6->P7).
-            gi_angle = self.logic.compute_angle_between_vectors(P10 - P9, P7 - P6)
-            self.logic.draw_line(P9, P10, color=(0, 1, 1), name="GI_fossa_axis")
+            gi_angle = self.logic.compute_angle_between_vectors(fossa_dir, P7 - P6)
+
+            # draw the fitted fossa line across the extent of all 3 fossa points, not just P9-P10
+            fossa_pts = np.vstack([P9, P10, P11])
+            t_fossa = (fossa_pts - fossa_centroid) @ fossa_dir
+            fossa_line_start = fossa_centroid + t_fossa.min() * fossa_dir
+            fossa_line_end = fossa_centroid + t_fossa.max() * fossa_dir
+            self.logic.draw_line(fossa_line_start, fossa_line_end, color=(0, 1, 1), name="GI_fossa_axis")
             self.logic.draw_line(P6, P7, color=(0, 1, 1), name="GI_GS_axis")
 
             # --- Overhang ---
-            # Signed distance from P4 to P12, projected along the glenosphere axis (P6->P7).
-            overhang_distance = self.logic.project_vector_onto_axis(P4 - P12, P6, P7)
+            overhang_distance = self.logic.project_vector_onto_axis(P4 - P13, P6, P7)
 
         # Save metrics
         metrics = {
@@ -625,7 +581,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "GH": gh_distance,
             "SNL": snl_distance,
             "SNA": sna_angle,
-         #   "GIA": gia_angle,
             "DSA": dsa_angle,
             "LSA": lsa_angle,
             "HumeralAxis": axis_vector
@@ -645,9 +600,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             f"GH   : {gh_distance:.1f} mm\n"
             f"SNL  : {snl_distance:.1f} mm\n"
             f"SNA  : {sna_angle:.1f}°\n"
-        #    f"GIA  : {gia_angle:.1f}°\n"
             f"DSA  : {dsa_angle:.1f}°\n"
             f"LSA  : {lsa_angle:.1f}°\n"
+            f"HumeralAxis  : {axis_vector:.1f}°\n"
         )
         if is_reverse:
             text += (
@@ -727,8 +682,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         Write a single CSV file containing two sections:
           1) FIDUCIALS  - one row per fiducial point (ID, Label, X, Y, Z)
           2) PARAMETERS - one row per computed metric (Metric, Value)
-        The two sections are separated by a blank line and a section header,
-        acting as a lightweight substitute for two Excel sheets.
+        The two sections are separated by a blank line and a section header.
         """
         if not os.path.exists(outputDir):
             slicer.util.errorDisplay("Selected output folder does not exist.")
@@ -773,7 +727,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
 
 
-    # --- Compute beta angle ---
+    # --- Compute beta angle --- TO DELETE
     def compute_beta_angle(self, points):
         """Compute Beta angle (P1-P2 vs P3-P4)."""
         p1 = np.array([points['P1']['x'], points['P1']['y']])
@@ -788,6 +742,13 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         dot = np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0)
         return 180 - np.degrees(np.arccos(dot))
 
+    # --- Beta angle from two direction vectors (used when one line is a multi-point fit) ---
+    def compute_beta_angle_from_vectors(self, v1, v2):
+        v1n = v1 / np.linalg.norm(v1)
+        v2n = v2 / np.linalg.norm(v2)
+        dot = np.clip(np.dot(v1n, v2n), -1.0, 1.0)
+        return 180 - np.degrees(np.arccos(dot))
+
     # --- Generic angle computation ---
     def compute_angle(self, A, B, C):
         """Compute angle at B formed by A-B-C."""
@@ -798,24 +759,16 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         dot = np.clip(np.dot(BA_norm, BC_norm), -1.0, 1.0)
         return np.degrees(np.arccos(dot))
 
-    # --- Angle between two free vectors (not sharing a common vertex point) ---
+    # --- Angle between two free vectors  ---
     def compute_angle_between_vectors(self, v1, v2):
         """
-        Compute the angle (in degrees, 0-90) between two direction vectors,
-        e.g. between an axis defined by two points and another axis defined
-        by two other points. Unlike compute_angle, this does not require a
-        shared vertex - each axis is given directly as a vector.
-
-        Used for Glenosphere Inclination (GI): angle between the fossa axis
-        (P9->P10) and the glenosphere axis (P6->P7).
+        Compute the angle (in degrees) between two direction vectors.
         """
         v1_norm = v1 / np.linalg.norm(v1)
         v2_norm = v2 / np.linalg.norm(v2)
         dot = np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0)
         angle = np.degrees(np.arccos(dot))
-        # Report the acute angle between the two lines (0-90 deg), since an
-        # axis has no inherent direction and the obtuse/acute angle depends
-        # only on arbitrary point placement order.
+
         return min(angle, 180 - angle)
 
     # --- Signed projection of a vector onto an axis defined by two points ---
@@ -824,8 +777,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         Project `vec` onto the axis defined by (axisA -> axisB) and return
         the signed length of that projection.
 
-        Used for Overhang: signed distance from P4 to P12 (vec = P4 - P12),
-        projected along the glenosphere axis (P6->P7, axisA=P6, axisB=P7).
+        Used for Overhang
         """
         axis_vec = axisB - axisA
         axis_len = np.linalg.norm(axis_vec)
@@ -833,6 +785,85 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             return 0.0
         axis_unit = axis_vec / axis_len
         return float(np.dot(vec, axis_unit))
+
+    # --- Compute least-squares line fit ---
+    def fit_line_tls(self, points):
+        """Total least-squares line fit. Returns (centroid, unit_direction)."""
+        pts = np.asarray(points, dtype=float)
+        centroid = pts.mean(axis=0)
+        _, _, vt = np.linalg.svd(pts - centroid, full_matrices=False)
+        direction = vt[0]
+        return centroid, direction / np.linalg.norm(direction)
+
+    # --- Compute the diaphysis axis running midway between the two cortical lines.
+    def central_axis_from_cortices(self, inner_pts, outer_pts, n_samples=64,
+                                   max_iter=30, tol=1e-12, extend=0.0):
+        """
+        Diaphyseal axis running midway between the two cortical lines.
+
+        The direction converges to the angle bisector of the two cortical
+        lines: the unique axis equally inclined to both edges.
+        """
+        inner_pts = np.asarray(inner_pts, dtype=float)
+        outer_pts = np.asarray(outer_pts, dtype=float)
+
+        c_in, u_in = self.fit_line_tls(inner_pts)
+        c_out, u_out = self.fit_line_tls(outer_pts)
+        if np.dot(u_in, u_out) < 0.0:
+            u_out = -u_out
+
+        all_pts = np.vstack([inner_pts, outer_pts])
+        origin = all_pts.mean(axis=0)
+        axis = u_in + u_out
+        axis /= np.linalg.norm(axis)
+
+        mids = p_in = p_out = None
+        n_iter = 0
+
+        for n_iter in range(1, max_iter + 1):
+            h_all = (all_pts - origin) @ axis
+            h_lo, h_hi = h_all.min(), h_all.max()
+
+            d_in, d_out = np.dot(u_in, axis), np.dot(u_out, axis)
+            if abs(d_in) < 1e-6 or abs(d_out) < 1e-6:
+                raise ValueError("A cortical line is nearly perpendicular to the "
+                                 "axis - check the inner/outer point assignment.")
+
+            heights = np.linspace(h_lo, h_hi, n_samples)
+            t_in = (heights - np.dot(c_in - origin, axis)) / d_in
+            t_out = (heights - np.dot(c_out - origin, axis)) / d_out
+            p_in = c_in + t_in[:, None] * u_in
+            p_out = c_out + t_out[:, None] * u_out
+            mids = 0.5 * (p_in + p_out)
+
+            new_origin, new_axis = self.fit_line_tls(mids)
+            if np.dot(new_axis, axis) < 0.0:
+                new_axis = -new_axis
+
+            converged = (1.0 - abs(np.dot(new_axis, axis))) < tol
+            origin, axis = new_origin, new_axis
+            if converged:
+                break
+
+        t = (mids - origin) @ axis
+        p_start = origin + (t.min() - extend) * axis
+        p_end = origin + (t.max() + extend) * axis
+
+        def perp_dist(pts):
+            v = pts - origin
+            return np.linalg.norm(v - np.outer(v @ axis, axis), axis=1)
+
+        r_in, r_out = perp_dist(p_in), perp_dist(p_out)
+
+        return {
+            "origin": origin,
+            "direction": axis,
+            "p_start": p_start,
+            "p_end": p_end,
+            "half_width_mean": float(0.5 * (r_in.mean() + r_out.mean())),
+            "asymmetry_rms": float(np.sqrt(np.mean((r_in - r_out) ** 2))),
+            "n_iter": n_iter,
+        }
 
     # --- Distance point-to-line ---
     def distance_point_to_line(self, P, A, B):
@@ -868,7 +899,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         return points
 
     # --- Draw arc ---
-    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.00001, num_points=30):
+    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.0000001, num_points=30):
         """
         Draw an arc centered at `vertex`, starting at `p1` and spanning `angle_deg` toward `p2`.
         The arc is drawn in the XY plane.
@@ -882,12 +913,10 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         v_start = p1 - vertex
         v_end = p2 - vertex
 
-        # Determine rotation direction (sign of angle)
         angle_rad = np.radians(angle_deg)
         points = []
         for t in np.linspace(0, 1, num_points):
             theta = t * angle_rad
-            # 2D rotation in XY plane
             rot_matrix = np.array([[np.cos(theta), -np.sin(theta)],
                                    [np.sin(theta), np.cos(theta)]])
             arc_point_xy = vertex[:2] + rot_matrix @ v_start[:2]
@@ -898,7 +927,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         for pt in points:
             curveNode.AddControlPoint(pt)
 
-        # Display properties
         displayNode = curveNode.GetDisplayNode()
 
         if displayNode:
@@ -918,6 +946,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         lineNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsLineNode") #, name
         lineNode.AddControlPoint(A.tolist())
         lineNode.AddControlPoint(B.tolist())
+        #lineNode.SetLocked(locked)
 
         displayNode = lineNode.GetDisplayNode()
 
@@ -974,8 +1003,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
     def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=18):
 
-        import numpy as np
-
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
                 slicer.mrmlScene.RemoveNode(node)
@@ -1000,7 +1027,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
         radius_vec = point - center
 
-        # perpendicular vector (2D)
         tangent_vec = np.array([-radius_vec[1], radius_vec[0], 0])
 
         tangent_vec = tangent_vec / np.linalg.norm(tangent_vec)
