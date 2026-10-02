@@ -98,18 +98,21 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P2": "Diaphysis proximal lateral - external border of cortex",
             "P3": "Diaphysis distal medial - external border of cortex",
             "P4": "Diaphysis distal lateral - external border of cortex",
-            "P5": "Latero-superior greater tuberosity (GT)",
-            "P6": "Upper head greater tuberosity junction",
-            "P7": "Lower head calcar junction",
-            "P8": "Mid head calcar surface",
-            "P9": "Lateral fossa ",
-            "P10": "Medial fossa",
-            "P11": "Mid fossa",
-            "P12": "Upper glenoid",
-            "P13": "Lower glenoid",
-            "P14": "Lateroinferior acromion",
-            "P15": "Medio-inferior acromion",
-            "P16": "Medial part of the scapular neck",
+            "P5": "Diaphysis mid medial - external cortex",
+            "P6": "Diaphysis mid lateral - external cortex",
+            "P7": "Latero-superior greater tuberosity (GT)",
+            "P8": "Upper head greater tuberosity junction",
+            "P9": "Lower head calcar junction",
+            "P10": "Mid head calcar surface",
+            "P11": "Lateral fossa ",
+            "P12": "Medial fossa",
+            "P13": "Mid fossa",
+            "P14": "Upper glenoid",
+            "P15": "Lower glenoid",
+            "P16": "Lateroinferior acromion",
+            "P17": "Medio-inferior acromion",
+            "P18": "Lower cortical edge of acromion (for circle fit)",
+            "P19": "Medial part of the scapular neck",
         }
 
         # Main layout and form
@@ -289,15 +292,15 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             fidName = f"P{n}"
             caller.SetNthControlPointLabel(n - 1, fidName)
 
-            if fidName == "P16":
-                self.drawGuideLineForP16(caller)
+            if fidName == "P19":
+                self.drawGuideLineForP19(caller)
         else:
             # Stop placement if too many points
             interactionNode = slicer.app.applicationLogic().GetInteractionNode()
             interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)
             slicer.util.showStatusMessage("Maximum fiducials placed — placement stopped.", 3000)
 
-    def drawGuideLineForP16(self, markupNode, half_length=80.0):
+    def drawGuideLineForP19(self, markupNode, half_length=80.0):
         """
         Draw a temporary guide line through P12, parallel to the fossa axis
         (TLS fit through P9, P10, P11), to help the user place P16 along the
@@ -305,26 +308,26 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         try:
             points = self.logic.get_fiducial_positions(markupNode)
-            required = ("P9", "P10", "P11", "P12")
+            required = ("P11", "P12", "P13", "P14")
             missing = [p for p in required if p not in points]
             if missing:
-                logging.warning("P16 guide line skipped: missing %s", missing)
+                logging.warning("P18 guide line skipped: missing %s", missing)
                 return
 
-            P9 = np.array([points['P9']['x'], points['P9']['y'], 0.0])
-            P10 = np.array([points['P10']['x'], points['P10']['y'], 0.0])
             P11 = np.array([points['P11']['x'], points['P11']['y'], 0.0])
             P12 = np.array([points['P12']['x'], points['P12']['y'], 0.0])
+            P13 = np.array([points['P13']['x'], points['P13']['y'], 0.0])
+            P14 = np.array([points['P14']['x'], points['P14']['y'], 0.0])
 
-            _, fossa_dir = self.logic.fit_line_tls([P9, P10, P11])
-            if np.dot(fossa_dir, P10 - P9) < 0:
+            _, fossa_dir = self.logic.fit_line_tls([P11, P12, P14])
+            if np.dot(fossa_dir, P12 - P11) < 0:
                 fossa_dir = -fossa_dir
 
-            guide_start = P12 - half_length * fossa_dir
-            guide_end = P12 + half_length * fossa_dir
+            guide_start = P14 - half_length * fossa_dir
+            guide_end = P14 + half_length * fossa_dir
             self.logic.draw_line(guide_start, guide_end, color=(0, 1, 0),
-                                 name="P16_GuideLine") #locked=True
-            logging.info("P16 guide line drawn from %s to %s", guide_start, guide_end)
+                                 name="P19_GuideLine") #locked=True
+            logging.info("P19 guide line drawn from %s to %s", guide_start, guide_end)
 
 
             selectionNode = slicer.app.applicationLogic().GetSelectionNode()
@@ -333,7 +336,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.modules.markups.logic().StartPlaceMode(1)
 
         except Exception:
-            logging.exception("drawFossaGuideLineForP16 failed")
+            logging.exception("drawFossaGuideLineForP19 failed")
 
 ############## to delete ?
     def get_input_volume_spacing(self):
@@ -456,6 +459,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         P14 = np.array([points['P14']['x'], points['P14']['y'], points['P14']['z']])
         P15 = np.array([points['P15']['x'], points['P15']['y'], points['P15']['z']])
         P16 = np.array([points['P16']['x'], points['P16']['y'], points['P16']['z']])
+        P17 = np.array([points['P17']['x'], points['P17']['y'], points['P17']['z']])
+        P18 = np.array([points['P18']['x'], points['P18']['y'], points['P18']['z']])
+        P19 = np.array([points['P19']['x'], points['P19']['y'], points['P19']['z']])
 
         # --- Fossa axis (TLS fit through 3 points) ---
         fossa_centroid, fossa_dir = self.logic.fit_line_tls([P9, P10, P11])
@@ -468,10 +474,10 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         beta_angle = self.logic.compute_beta_angle_from_vectors(fossa_dir, P12 - P13)
 
         # Vertex for the arc drawing: intersection of the raw P9-P10 fossa segment with the glenoid line
-        x1, y1 = P9[:2]
-        x2, y2 = P10[:2]
-        x3, y3 = P13[:2]
-        x4, y4 = P12[:2]
+        x1, y1 = P11[:2]
+        x2, y2 = P12[:2]
+        x3, y3 = P15[:2]
+        x4, y4 = P14[:2]
 
         denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
         if denom == 0:
@@ -486,54 +492,47 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # --- Critical Shoulder Angle (CSA) ---
 
-        csa_angle = self.logic.compute_angle(P12, P13, P14)
-        #self.logic.draw_line(P13, P12, color=(0.5, 0, 1), name="CSA")
-        #self.logic.draw_line(P13, P14, color=(0.5, 0, 1))
+        csa_angle = self.logic.compute_angle(P14, P15, P16)
+        #self.logic.draw_line(P15, P14, color=(0.5, 0, 1), name="CSA")
+        #self.logic.draw_line(P15, P16, color=(0.5, 0, 1))
 
         # --- Subacromial space (SAS) ---
-        center, radius = self.logic.compute_circle_center(P6, P7, P8)
+        head_center, head_radius = self.logic.compute_circle_center(P8, P9, P10)
+            # Acromion circle
+        acr_center, acr_radius = self.logic.compute_circle_center(P16, P17, P18)
 
-        if center is not None:
-            self.logic.draw_circle(center, radius, name="HumeralHeadCircle")
+        sas_distance = None
+        if head_center is not None and acr_center is not None:
+            self.logic.draw_circle(head_center, head_radius, name="HumeralHeadCircle")
+          #  self.logic.draw_circle(acr_center, acr_radius, name="AcromionCircle", color=(1, 0.5, 0))
 
-            AB = P15 - P14
-            AB_norm = AB / np.linalg.norm(AB)
-            normal = np.array([-AB_norm[1], AB_norm[0], 0])
-            d = self.logic.distance_point_to_line(center, P14, P15)
-
-            vec = center - P14
-            sign = np.sign(np.dot(vec, normal))
-            tangent_point = center - sign * radius * normal
-
-            tangent_start = tangent_point - AB_norm * 50
-            tangent_end = tangent_point + AB_norm * 50
-          #  self.logic.draw_line(tangent_start, tangent_end, color=(1, 1, 0), name="SAS_tangent")
-            self.logic.draw_line(P14, P15, color=(1, 1, 0))
-
-            sas_distance = abs(d - radius)
+            sas_distance, (acr_pt, head_pt), arc_pts = self.logic.compute_sas_circle_to_circle(
+                head_center, head_radius, acr_center, acr_radius, P16, P17, P18
+            )
+           # self.logic.draw_arc_points(arc_pts, name="AcromionArcUsed", color=(1, 0.5, 0))
+            self.logic.draw_line(acr_pt, head_pt, color=(1, 1, 0), name="SAS_distance")
+        else:
+            logging.warning("SAS not computed: head and/or acromion points "
+                            "are collinear - check P8-P10 and P16-P18 placement.")
 
             # --- Glenoid Height (GH) ---
-            gh_distance = np.linalg.norm(P12 - P13)
+            gh_distance = np.linalg.norm(P14 - P15)
 
             # --- Scapular Neck Length (SNL) ---
-            snl_distance = np.linalg.norm(P16 - P13)
+            snl_distance = np.linalg.norm(P19 - P15)
 
             # --- Scapular Neck Angle (SNA) ---
-            sna_angle = self.logic.compute_angle(P12, P13, P16)
+            sna_angle = self.logic.compute_angle(P14, P15, P19)
 
             # --- Distalization shoulder angle (DSA) ---
-            dsa_angle = self.logic.compute_angle(P6, P12, P14)
-           # self.logic.draw_line(P6, P12, color=(0.9, 0.4, 0.6), name="DSA")
-           # self.logic.draw_line(P12, P14, color=(0.9, 0.4, 0.6))
+            dsa_angle = self.logic.compute_angle(P8, P14, P16)
 
             # --- Lateralization shoulder angle (LSA) ---
-            lsa_angle = self.logic.compute_angle(P5, P14, P12)
-          #  self.logic.draw_line(P5, P14, color=(0.9, 0.4, 0.6), name="LSA")
-          #  self.logic.draw_line(P14, P12, color=(0.9, 0.4, 0.6))
+            lsa_angle = self.logic.compute_angle(P7, P16, P14)
 
         # --- Humeral Axis ---
-        # P1, P3 = inner cortical edge; P2, P4 = outer cortical edge
-        res = self.logic.central_axis_from_cortices([P1, P3], [P2, P4])
+        # P1, P3, P5 = inner cortical edge; P2, P4, P6 = outer cortical edge
+        res = self.logic.central_axis_from_cortices([P1, P3, P5], [P2, P4, P6])
 
         mid1 = res["p_start"]
         mid2 = res["p_end"]
@@ -560,15 +559,15 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         if is_reverse:
             # --- Glenosphere Inclination (GI) ---
-            gi_angle = self.logic.compute_angle_between_vectors(fossa_dir, P7 - P6)
+            gi_angle = self.logic.compute_angle_between_vectors(fossa_dir, P9 - P8)
 
             # draw the fitted fossa line across the extent of all 3 fossa points, not just P9-P10
-            fossa_pts = np.vstack([P9, P10, P11])
+            fossa_pts = np.vstack([P11, P12, P13])
             t_fossa = (fossa_pts - fossa_centroid) @ fossa_dir
             fossa_line_start = fossa_centroid + t_fossa.min() * fossa_dir
             fossa_line_end = fossa_centroid + t_fossa.max() * fossa_dir
             self.logic.draw_line(fossa_line_start, fossa_line_end, color=(0, 1, 1), name="GI_fossa_axis")
-            self.logic.draw_line(P6, P7, color=(0, 1, 1), name="GI_GS_axis")
+            self.logic.draw_line(P8, P9, color=(0, 1, 1), name="GI_GS_axis")
 
             # --- Overhang ---
             overhang_distance = self.logic.project_vector_onto_axis(P4 - P13, P6, P7)
@@ -1000,6 +999,74 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         radius = np.linalg.norm(center - A)
 
         return center, radius
+
+    # --- Sample points along the arc of a circle that runs between two
+    #     boundary points, through a third point that disambiguates which
+    #     of the two possible arcs (minor/major) is the right one. ---
+    def circle_arc_points(self, center, radius, p_start, p_end, num_points=200):
+        def angle_of(p):
+            return np.arctan2(p[1] - center[1], p[0] - center[0])
+
+        a_start = angle_of(p_start)
+        a_end = angle_of(p_end)
+        d_end = (a_end - a_start) % (2 * np.pi)  # CCW distance, in [0, 2pi)
+
+        if d_end <= np.pi:
+            thetas = a_start + np.linspace(0, d_end, num_points)
+        else:
+            thetas = a_start - np.linspace(0, 2 * np.pi - d_end, num_points)
+
+        x = center[0] + radius * np.cos(thetas)
+        y = center[1] + radius * np.sin(thetas)
+        z = np.full_like(thetas, center[2])
+        return np.stack([x, y, z], axis=1)
+
+
+    # --- Distance from a point to the nearest point on a circle (2D, in-plane) ---
+    def point_to_circle_distance(self, point, center, radius):
+        v = point[:2] - center[:2]
+        n = np.linalg.norm(v)
+        if n < 1e-9:
+            closest_xy = center[:2] + np.array([radius, 0.0])
+        else:
+            closest_xy = center[:2] + radius * v / n
+        closest = np.array([closest_xy[0], closest_xy[1], center[2]])
+        dist = np.linalg.norm(point - closest)
+        return dist, closest
+
+    # --- Subacromial space (SAS): minimal distance between the acromion
+    #     circle (restricted to its P16->P17 arc, through P18) and the
+    #     full humeral head circle. ---
+    def compute_sas_circle_to_circle(self, head_center, head_radius,
+                                     acr_center, acr_radius,
+                                     p16, p17, p18, num_samples=200):
+        arc_pts = self.circle_arc_points(acr_center, acr_radius, p16, p17,
+                                         num_points=num_samples)
+
+        best_dist, best_pair = None, None
+        for pt in arc_pts:
+            dist, closest_on_head = self.point_to_circle_distance(pt, head_center, head_radius)
+            if best_dist is None or dist < best_dist:
+                best_dist = dist
+                best_pair = (pt, closest_on_head)
+
+        return best_dist, best_pair, arc_pts
+
+    # --- Draw an explicit list of points as a curve (used to show which
+    #     arc of the acromion circle was actually searched) ---
+    def draw_arc_points(self, points, name="Arc", color=(1, 0.5, 0), thickness=0.3):
+        for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
+            if node.GetName() == name:
+                slicer.mrmlScene.RemoveNode(node)
+
+        curveNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsCurveNode", name)
+        for pt in points:
+            curveNode.AddControlPoint(pt.tolist())
+
+        displayNode = curveNode.GetDisplayNode()
+        if displayNode:
+            displayNode.SetSelectedColor(*color)
+            displayNode.SetLineThickness(thickness)
 
     def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=18):
 
