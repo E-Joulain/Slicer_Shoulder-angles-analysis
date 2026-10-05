@@ -311,7 +311,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             required = ("P11", "P12", "P13", "P14")
             missing = [p for p in required if p not in points]
             if missing:
-                logging.warning("P18 guide line skipped: missing %s", missing)
+                logging.warning("P19 guide line skipped: missing %s", missing)
                 return
 
             P11 = np.array([points['P11']['x'], points['P11']['y'], 0.0])
@@ -319,7 +319,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             P13 = np.array([points['P13']['x'], points['P13']['y'], 0.0])
             P14 = np.array([points['P14']['x'], points['P14']['y'], 0.0])
 
-            _, fossa_dir = self.logic.fit_line_tls([P11, P12, P14])
+            _, fossa_dir = self.logic.fit_line_tls([P11, P12, P13])
             if np.dot(fossa_dir, P12 - P11) < 0:
                 fossa_dir = -fossa_dir
 
@@ -464,14 +464,14 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         P19 = np.array([points['P19']['x'], points['P19']['y'], points['P19']['z']])
 
         # --- Fossa axis (TLS fit through 3 points) ---
-        fossa_centroid, fossa_dir = self.logic.fit_line_tls([P9, P10, P11])
+        fossa_centroid, fossa_dir = self.logic.fit_line_tls([P11, P12, P13])
         if np.dot(fossa_dir, P10 - P9) < 0:
             fossa_dir = -fossa_dir
         #self.logic.draw_line(fossa_dir, color=(0.9, 0.4, 0.6), name="Fossa axis")
 
         # --- Beta angle ---
         # fossa axis (fit from P9, P10, P11) vs glenoid line (lower P13 -> upper P12)
-        beta_angle = self.logic.compute_beta_angle_from_vectors(fossa_dir, P12 - P13)
+        beta_angle = self.logic.compute_beta_angle_from_vectors(fossa_dir, P14 - P15)
 
         # Vertex for the arc drawing: intersection of the raw P9-P10 fossa segment with the glenoid line
         x1, y1 = P11[:2]
@@ -487,7 +487,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denom
             intersect = np.array([px, py, 0.0])
 
-        self.logic.draw_arc(intersect, P9, P12, beta_angle, name="BetaAngleArc", color=(1, 1, 0), num_points=5)
+        self.logic.draw_arc(intersect, P11, P15, beta_angle, name="BetaAngleArc", color=(1, 1, 0), num_points=5)
 
 
         # --- Critical Shoulder Angle (CSA) ---
@@ -898,20 +898,16 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         return points
 
     # --- Draw arc ---
-    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.0000001, num_points=30):
+    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.7, num_points=30):
         """
         Draw an arc centered at `vertex`, starting at `p1` and spanning `angle_deg` toward `p2`.
         The arc is drawn in the XY plane.
         """
-        # Remove old node with the same name
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
                 slicer.mrmlScene.RemoveNode(node)
 
-        # Generate points along the arc
         v_start = p1 - vertex
-        v_end = p2 - vertex
-
         angle_rad = np.radians(angle_deg)
         points = []
         for t in np.linspace(0, 1, num_points):
@@ -921,18 +917,24 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             arc_point_xy = vertex[:2] + rot_matrix @ v_start[:2]
             points.append([arc_point_xy[0], arc_point_xy[1], vertex[2]])
 
-        # Create Markups Curve Node
         curveNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsCurveNode", name)
         for pt in points:
             curveNode.AddControlPoint(pt)
 
         displayNode = curveNode.GetDisplayNode()
-
         if displayNode:
             displayNode.SetSelectedColor(*color)
-            displayNode.SetLineThickness(thickness)
+
+            # Absolute line thickness (mm), independent of glyph size
+            displayNode.SetCurveLineSizeMode(displayNode.UseLineDiameter)
+            displayNode.SetLineDiameter(thickness)
+
+            # Hide point markers - safe now the line doesn't depend on glyph size
+            displayNode.SetGlyphScale(0.0)
             displayNode.SetVisibility2D(True)
             displayNode.SetVisibility3D(True)
+            displayNode.SetPointLabelsVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(False)
 
     # --- Draw line ---
     def draw_line(self, A, B, color=(1, 0, 0), thickness=0.2, name = None):
@@ -1068,7 +1070,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetSelectedColor(*color)
             displayNode.SetLineThickness(thickness)
 
-    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=18):
+    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=0.7):
 
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
@@ -1083,7 +1085,16 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
         displayNode = curveNode.GetDisplayNode()
         displayNode.SetSelectedColor(*color)
-        displayNode.SetLineThickness(0.002)
+
+        # Make line thickness an ABSOLUTE size (mm), independent of glyph size,
+        # so hiding the glyphs below doesn't also hide the line.
+        displayNode.SetCurveLineSizeMode(displayNode.UseLineDiameter)
+        displayNode.SetLineDiameter(thickness)
+
+        # Now safe to hide the point markers - the line no longer depends on this.
+        displayNode.SetGlyphScale(0.0)
+        displayNode.SetPointLabelsVisibility(False)
+        displayNode.SetPropertiesLabelVisibility(False)
 
     # --- Compute the tangent to a circle ---
     def compute_tangent_at_point(self, center, point):
