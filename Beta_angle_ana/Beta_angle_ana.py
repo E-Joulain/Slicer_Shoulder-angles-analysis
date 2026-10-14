@@ -94,12 +94,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ScriptedLoadableModuleWidget.setup(self)
 
         self.fiducialLabels = {
-            "P1": "Diaphysis proximal medial - external border of cortex",
-            "P2": "Diaphysis proximal lateral - external border of cortex",
-            "P3": "Diaphysis distal medial - external border of cortex",
-            "P4": "Diaphysis distal lateral - external border of cortex",
-            "P5": "Diaphysis mid medial - external cortex",
-            "P6": "Diaphysis mid lateral - external cortex",
+            "P1": "Diaphysis proximal medial - inner border of cortex",
+            "P2": "Diaphysis proximal lateral - inner border of cortex",
+            "P3": "Diaphysis distal medial - inner border of cortex",
+            "P4": "Diaphysis distal lateral - inner border of cortex",
+            "P5": "Diaphysis mid medial - inner cortex",
+            "P6": "Diaphysis mid lateral - inner cortex",
             "P7": "Latero-superior greater tuberosity (GT)",
             "P8": "Upper head greater tuberosity junction",
             "P9": "Lower head calcar junction",
@@ -107,12 +107,11 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P11": "Lateral fossa ",
             "P12": "Medial fossa",
             "P13": "Mid fossa",
-            "P14": "Upper glenoid",
-            "P15": "Lower glenoid",
+            "P14": "Lower glenoid",
+            "P15": "Upper glenoid",
             "P16": "Lateroinferior acromion",
             "P17": "Medio-inferior acromion",
-            "P18": "Lower cortical edge of acromion (for circle fit)",
-            "P19": "Medial part of the scapular neck",
+            "P18": "Medial part of the scapular neck",
         }
 
         # Main layout and form
@@ -226,9 +225,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.toggleLabelsButton.connect('clicked(bool)', self.onToggleFiducialLabels)
         self.beta_angleLayout.addWidget(self.toggleLabelsButton)
 
-        self.beta_angleExportButton = qt.QPushButton("Export fiducials nodes and parameters")
-        self.beta_angleExportButton.connect('clicked(bool)', lambda: self.onExportFiducials("beta_angle"))
-        self.beta_angleLayout.addWidget(self.beta_angleExportButton)
+       # self.beta_angleExportButton = qt.QPushButton("Export fiducials nodes and parameters")
+       # self.beta_angleExportButton.connect('clicked(bool)', lambda: self.onExportFiducials("beta_angle"))
+       # self.beta_angleLayout.addWidget(self.beta_angleExportButton)
 
         # Reset button
         self.resetFiducialsButton = qt.QPushButton("Reset fiducials nodes")
@@ -272,17 +271,34 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             scene.RemoveNode(node)
 
     def onPlaceFiducial(self, timepoint: str):
-        """Activate placement of fiducials and create the markup node if needed."""
+        """Clear any previous fiducials/overlays for this timepoint, then
+                activate placement of a fresh set."""
         nodeName = f"Fiducials_{timepoint}"
-        self.markupNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
-        if not self.markupNode:
-            self.markupNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", nodeName)
-            self.markupNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointAddedEvent, self.onFiducialAdded)
+        scene = slicer.mrmlScene
+
+        # Remove the existing fiducial node for this timepoint, if any
+        existingNode = scene.GetFirstNodeByName(nodeName)
+        if existingNode:
+            scene.RemoveNode(existingNode)
+
+        # Remove all drawn overlays (axis/angle lines, circles, arcs)
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsLineNode")):
+            scene.RemoveNode(node)
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsCurveNode")):
+            scene.RemoveNode(node)
+
+        # Create a fresh fiducial node
+        self.markupNode = scene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", nodeName)
+        self.markupNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointAddedEvent, self.onFiducialAdded)
 
         if "beta_angle" in timepoint.lower():
             displayNode = self.markupNode.GetDisplayNode()
             if displayNode:
-                displayNode.SetSelectedColor(0, 1, 0)  #
+                displayNode.SetSelectedColor(0, 1, 0)  # green
+                displayNode.SetUseGlyphScale(False)
+                displayNode.SetGlyphSize(1.5)
+
+        # Start place mode (1 point at a time)
         slicer.modules.markups.logic().StartPlaceMode(1)
 
     def onFiducialAdded(self, caller, event):
@@ -292,15 +308,15 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             fidName = f"P{n}"
             caller.SetNthControlPointLabel(n - 1, fidName)
 
-            if fidName == "P19":
-                self.drawGuideLineForP19(caller)
+            if fidName == "P18":
+                self.drawGuideLineForP18(caller)
         else:
             # Stop placement if too many points
             interactionNode = slicer.app.applicationLogic().GetInteractionNode()
             interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)
             slicer.util.showStatusMessage("Maximum fiducials placed — placement stopped.", 3000)
 
-    def drawGuideLineForP19(self, markupNode, half_length=80.0):
+    def drawGuideLineForP18(self, markupNode, half_length=80.0):
         """
         Draw a temporary guide line through P12, parallel to the fossa axis
         (TLS fit through P9, P10, P11), to help the user place P16 along the
@@ -311,7 +327,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             required = ("P11", "P12", "P13", "P14")
             missing = [p for p in required if p not in points]
             if missing:
-                logging.warning("P19 guide line skipped: missing %s", missing)
+                logging.warning("P18 guide line skipped: missing %s", missing)
                 return
 
             P11 = np.array([points['P11']['x'], points['P11']['y'], 0.0])
@@ -326,8 +342,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             guide_start = P14 - half_length * fossa_dir
             guide_end = P14 + half_length * fossa_dir
             self.logic.draw_line(guide_start, guide_end, color=(0, 1, 0),
-                                 name="P19_GuideLine") #locked=True
-            logging.info("P19 guide line drawn from %s to %s", guide_start, guide_end)
+                                 name="P18_GuideLine") #locked=True
+            logging.info("P18 guide line drawn from %s to %s", guide_start, guide_end)
 
 
             selectionNode = slicer.app.applicationLogic().GetSelectionNode()
@@ -336,7 +352,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.modules.markups.logic().StartPlaceMode(1)
 
         except Exception:
-            logging.exception("drawFossaGuideLineForP19 failed")
+            logging.exception("drawFossaGuideLineForP18 failed")
 
 ############## to delete ?
     def get_input_volume_spacing(self):
@@ -426,6 +442,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         nodeName = f"Fiducials_{timepoint}"
         outputDir = self.outputDirectoryButton.currentPath
         markupNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
+        scene = slicer.mrmlScene
+
         if not markupNode:
             slicer.util.errorDisplay(f"No fiducials placed for {timepoint}")
             return
@@ -441,6 +459,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         for label in points:
             points[label]['z'] = 0
+
+        # Remove all drawn overlays (axis/angle lines, circles, arcs)
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsLineNode")):
+            scene.RemoveNode(node)
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsCurveNode")):
+            scene.RemoveNode(node)
 
         # --- Points ---
         P1 = np.array([points['P1']['x'], points['P1']['y'], points['P1']['z']])
@@ -461,13 +485,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         P16 = np.array([points['P16']['x'], points['P16']['y'], points['P16']['z']])
         P17 = np.array([points['P17']['x'], points['P17']['y'], points['P17']['z']])
         P18 = np.array([points['P18']['x'], points['P18']['y'], points['P18']['z']])
-        P19 = np.array([points['P19']['x'], points['P19']['y'], points['P19']['z']])
 
         # --- Fossa axis (TLS fit through 3 points) ---
         fossa_centroid, fossa_dir = self.logic.fit_line_tls([P11, P12, P13])
         if np.dot(fossa_dir, P10 - P9) < 0:
             fossa_dir = -fossa_dir
-        #self.logic.draw_line(fossa_dir, color=(0.9, 0.4, 0.6), name="Fossa axis")
+       # self.logic.draw_line(fossa_dir[0],fossa_dir[1], name="Fossa axis")
 
         # --- Beta angle ---
         # fossa axis (fit from P9, P10, P11) vs glenoid line (lower P13 -> upper P12)
@@ -493,42 +516,42 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # --- Critical Shoulder Angle (CSA) ---
 
         csa_angle = self.logic.compute_angle(P14, P15, P16)
-        #self.logic.draw_line(P15, P14, color=(0.5, 0, 1), name="CSA")
-        #self.logic.draw_line(P15, P16, color=(0.5, 0, 1))
 
         # --- Subacromial space (SAS) ---
-        head_center, head_radius = self.logic.compute_circle_center(P8, P9, P10)
-            # Acromion circle
-        acr_center, acr_radius = self.logic.compute_circle_center(P16, P17, P18)
+        center_humerus, radius_humerus = self.logic.compute_circle_center(P8, P9, P10)
 
         sas_distance = None
-        if head_center is not None and acr_center is not None:
-            self.logic.draw_circle(head_center, head_radius, name="HumeralHeadCircle")
-          #  self.logic.draw_circle(acr_center, acr_radius, name="AcromionCircle", color=(1, 0.5, 0))
+        if center_humerus is not None:
+            self.logic.draw_circle(center_humerus, radius_humerus, name="HumeralHeadCircle")
 
-            sas_distance, (acr_pt, head_pt), arc_pts = self.logic.compute_sas_circle_to_circle(
-                head_center, head_radius, acr_center, acr_radius, P16, P17, P18
-            )
-           # self.logic.draw_arc_points(arc_pts, name="AcromionArcUsed", color=(1, 0.5, 0))
-            self.logic.draw_line(acr_pt, head_pt, color=(1, 1, 0), name="SAS_distance")
+            try:
+                sas_distance, origin_pt, tangent_pt = self.logic.compute_vertical_distance_to_circle(P16, P17, center_humerus, radius_humerus)
+                self.logic.draw_line(origin_pt, tangent_pt, color=(1, 1, 0), name="SAS_vertical")
+
+                if sas_distance < 0:
+                    logging.warning("SAS: P16-P17 line already overlaps the humeral "
+                                    "head circle (distance=%.2f mm) - check point placement.",
+                                    sas_distance)
+            except ValueError as e:
+                logging.warning("SAS not computed: %s", e)
         else:
-            logging.warning("SAS not computed: head and/or acromion points "
-                            "are collinear - check P8-P10 and P16-P18 placement.")
+            logging.warning("SAS not computed: P6/P7/P8 are collinear - "
+                            "check humeral head point placement.")
 
-            # --- Glenoid Height (GH) ---
-            gh_distance = np.linalg.norm(P14 - P15)
+        # --- Glenoid Height (GH) ---
+        gh_distance = np.linalg.norm(P14 - P15)
 
-            # --- Scapular Neck Length (SNL) ---
-            snl_distance = np.linalg.norm(P19 - P15)
+        # --- Scapular Neck Length (SNL) ---
+        snl_distance = np.linalg.norm(P18 - P15)
 
-            # --- Scapular Neck Angle (SNA) ---
-            sna_angle = self.logic.compute_angle(P14, P15, P19)
+        # --- Scapular Neck Angle (SNA) ---
+        sna_angle = self.logic.compute_angle(P14, P15, P18)
 
-            # --- Distalization shoulder angle (DSA) ---
-            dsa_angle = self.logic.compute_angle(P8, P14, P16)
+        # --- Distalization shoulder angle (DSA) ---
+        dsa_angle = self.logic.compute_angle(P8, P14, P16)
 
-            # --- Lateralization shoulder angle (LSA) ---
-            lsa_angle = self.logic.compute_angle(P7, P16, P14)
+        # --- Lateralization shoulder angle (LSA) ---
+        lsa_angle = self.logic.compute_angle(P7, P16, P14)
 
         # --- Humeral Axis ---
         # P1, P3, P5 = inner cortical edge; P2, P4, P6 = outer cortical edge
@@ -536,7 +559,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         mid1 = res["p_start"]
         mid2 = res["p_end"]
-        self.logic.draw_line(mid1, mid2, color=(1, 1, 0), name="HumeralAxis")
+        self.logic.draw_line(mid1, mid2, name="HumeralAxis")
 
         axis_unit = res["direction"]
         axis_vector = mid2 - mid1
@@ -545,6 +568,24 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         logging.info("Humeral axis: %d iter | half-width %.2f mm | "
                      "asymmetry %.4f mm",
                      res["n_iter"], res["half_width_mean"], res["asymmetry_rms"])
+
+        # --- Greater Tuberosity Angle (GTA) ---
+        gta_angle = None
+        if center_humerus is not None:
+            gta_vertex = self.logic.find_axis_circle_intersection(
+                res["origin"], res["direction"], center_humerus, radius_humerus, P7
+            )
+            if gta_vertex is not None:
+                gta_angle = self.logic.compute_angle(res["origin"], gta_vertex, P7)
+                self.logic.draw_line(gta_vertex, res["origin"], color=(0, 1, 0.5))
+                self.logic.draw_line(gta_vertex, P7, color=(0, 1, 0.5), name="GTA_GT")
+            else:
+                logging.warning("GTA not computed: humeral axis does not "
+                                "reach the humeral head circle - check "
+                                "diaphysis and head point placement.")
+        else:
+            logging.warning("GTA not computed: humeral head circle is "
+                            "degenerate (P8/P9/P10 collinear).")
 
         # --- Reverse-prosthesis-only metrics ---
         # Only computed when the selected X-ray type is "Reverse prosthesis".
@@ -577,12 +618,16 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "beta_angle": beta_angle,
             "critical_shoulder_angle": csa_angle,
             "subacromial_space": sas_distance,
+            "humeral head circle center": center_humerus,
+            "humeral head circle radius": radius_humerus,
+            "HumeralAxis": axis_vector,
+            "GTA": gta_angle,
             "GH": gh_distance,
             "SNL": snl_distance,
             "SNA": sna_angle,
             "DSA": dsa_angle,
             "LSA": lsa_angle,
-            "HumeralAxis": axis_vector
+
         }
         if is_reverse:
             metrics["GI"] = gi_angle
@@ -597,18 +642,13 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             f"CSA  : {csa_angle:.1f}°\n"
             f"SAS  : {sas_distance:.1f} mm\n"
             f"GH   : {gh_distance:.1f} mm\n"
-            f"SNL  : {snl_distance:.1f} mm\n"
-            f"SNA  : {sna_angle:.1f}°\n"
-            f"DSA  : {dsa_angle:.1f}°\n"
-            f"LSA  : {lsa_angle:.1f}°\n"
-            f"HumeralAxis  : {axis_vector:.1f}°\n"
+            f"GTA  : {gta_angle:.1f} deg\n"
         )
         if is_reverse:
             text += (
                 f"GI   : {gi_angle:.1f}°\n"
                 f"Overhang : {overhang_distance:.1f} mm\n"
             )
-
 
         # --- Display in slice views ---
         layoutManager = slicer.app.layoutManager()
@@ -619,7 +659,24 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 sliceView = sliceWidget.sliceView()
                 cornerAnnotation = sliceView.cornerAnnotation()
                 cornerAnnotation.SetText(vtk.vtkCornerAnnotation.UpperLeft, text)
-                sliceView.render()
+                sliceView.forceRender()
+
+        # --- Export fiducials + metrics immediately after computing ---
+        outputDir = qt.QFileDialog.getExistingDirectory(
+            slicer.util.mainWindow(),
+            "Select output folder"
+        )
+
+        if not outputDir:
+            slicer.util.showStatusMessage("Export cancelled.", 2000)
+            return
+
+        try:
+            self.logic.saveCombinedCSV(markupNode, metrics, patientID, timepoint, outputDir)
+            slicer.util.showStatusMessage("Fiducials + metrics saved successfully!", 5000)
+        except Exception as e:
+            slicer.util.errorDisplay(f"Export failed: {e}")
+
 
         # --- FORCE HIDE LABELS ---
 
@@ -877,6 +934,77 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         dist = np.linalg.norm(P - closest)
         return dist #, closest
 
+    # Find intersection axis-circle
+    def find_axis_circle_intersection(self, origin, direction, center, radius, reference_point):
+        """
+        Find where the line (origin + t*direction) crosses the circle
+        (center, radius), in the image plane.
+        """
+        O2 = np.asarray(origin[:2], dtype=float)
+        d2 = np.asarray(direction[:2], dtype=float)
+        d2 = d2 / np.linalg.norm(d2)
+        C2 = np.asarray(center[:2], dtype=float)
+
+        V = O2 - C2
+        b = 2 * np.dot(V, d2)
+        c = np.dot(V, V) - radius ** 2
+        disc = b ** 2 - 4 * c
+
+        if disc < 0:
+            return None
+
+        sqrt_disc = np.sqrt(disc)
+        t1 = (-b + sqrt_disc) / 2
+        t2 = (-b - sqrt_disc) / 2
+
+        X1 = O2 + t1 * d2
+        X2 = O2 + t2 * d2
+
+        ref2 = np.asarray(reference_point[:2], dtype=float)
+        chosen_xy = X1 if np.linalg.norm(X1 - ref2) <= np.linalg.norm(X2 - ref2) else X2
+
+        z = origin[2] if len(origin) > 2 else 0.0
+        return np.array([chosen_xy[0], chosen_xy[1], z])
+
+    # --- Vertical distance from a line segment down to a circle ---
+    def compute_vertical_distance_to_circle(self, p16, p17, center, radius):
+        """
+        'Lower' the line P16-P17 straight down until it becomes tangent to the circle, and
+        return that vertical drop.
+
+        Returns vertical_distance: signed drop in mm. Positive = circle is
+            below the line (normal SAS case). Negative = the line already
+            overlaps the circle at that x (should be flagged, not trusted).
+        """
+        x1, y1 = p16[:2]
+        x2, y2 = p17[:2]
+        cx, cy, cz = center
+        dx, dy = (x2 - x1), (y2 - y1)
+
+        if abs(dx) < 1e-9:
+            raise ValueError("P16-P17 is vertical - vertical-translation "
+                             "distance is undefined. Check point placement.")
+
+        m = dy / dx
+        norm_unit = np.array([-m, 1.0]) / np.sqrt(1 + m ** 2)
+
+        tangentA = np.array([cx, cy]) + radius * norm_unit
+        tangentB = np.array([cx, cy]) - radius * norm_unit
+
+        def vertical_gap(tangent_xy):
+            tx, ty = tangent_xy
+            y_on_line = y1 + m * (tx - x1)
+            return y_on_line - ty
+
+        gapA, gapB = vertical_gap(tangentA), vertical_gap(tangentB)
+        vertical_distance, tangent_xy = (
+            (gapA, tangentA) if abs(gapA) <= abs(gapB) else (gapB, tangentB)
+        )
+
+        tangent_point = np.array([tangent_xy[0], tangent_xy[1], cz])
+        origin_point = np.array([tangent_xy[0], y1 + m * (tangent_xy[0] - x1), cz])
+        return float(vertical_distance), origin_point, tangent_point
+
 
     # --- Generate points along an arc ---
     def generate_arc_points(self, vertex, p1, p2, angle_deg, num_points=30):
@@ -896,6 +1024,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             arc_point_2d = vertex[:2] + rot_matrix @ v1[:2]
             points.append([arc_point_2d[0], arc_point_2d[1], vertex[2]])
         return points
+
 
     # --- Draw arc ---
     def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.7, num_points=30):
@@ -934,46 +1063,41 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetVisibility2D(True)
             displayNode.SetVisibility3D(True)
             displayNode.SetPointLabelsVisibility(False)
-            displayNode.SetPropertiesLabelVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(True)
 
     # --- Draw line ---
-    def draw_line(self, A, B, color=(1, 0, 0), thickness=0.2, name = None):
-        """Draw a line as a Markups Line Node."""
+    def draw_line(self, A, B, color=(1, 1, 0), thickness=0.7, name=None):
+        """Draw a line as a Markups Line Node, with endpoint markers hidden."""
         # Remove previous line node with same name
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsLineNode"):
             if node.GetName() == name:
                 slicer.mrmlScene.RemoveNode(node)
 
-        lineNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsLineNode") #, name
+        lineNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsLineNode", name or "")
         lineNode.AddControlPoint(A.tolist())
         lineNode.AddControlPoint(B.tolist())
-        #lineNode.SetLocked(locked)
+        lineNode.SetNthControlPointLabel(0, "")
+        lineNode.SetNthControlPointLabel(1, "")
 
         displayNode = lineNode.GetDisplayNode()
-
         if displayNode:
             displayNode.SetSelectedColor(*color)
-            displayNode.SetLineThickness(thickness)
+
+            # Absolute line thickness (mm), independent of glyph size
+            displayNode.SetCurveLineSizeMode(displayNode.UseLineDiameter)
+            displayNode.SetLineDiameter(thickness)
+
+            # Hide the two endpoint dot markers entirely
+            displayNode.SetGlyphScale(0.0)
+
             displayNode.SetVisibility2D(True)
             displayNode.SetVisibility3D(True)
 
+            # Show only the line's name (as a single label), never per-point labels
             displayNode.SetPointLabelsVisibility(False)
-            displayNode.SetPropertiesLabelVisibility(False)
+            displayNode.SetPropertiesLabelVisibility(bool(name))
 
-            lineNode.SetName("")
-
-            lineNode.SetNthControlPointLabel(0, "")
-            lineNode.SetNthControlPointLabel(1, "")
-
-            if name:
-                lineNode.SetName(name)
-
-                # show only the custom label
-                displayNode.SetPointLabelsVisibility(True)
-                displayNode.SetPropertiesLabelVisibility(False)
-
-                lineNode.SetNthControlPointLabel(0, name)
-                lineNode.SetNthControlPointLabel(1, "")
+        return lineNode
 
     # --- Calculate the center of the circle with 3 reference point to find the center of rotation of the humeral head ---
     def compute_circle_center(self, A, B, C):
@@ -1036,23 +1160,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         dist = np.linalg.norm(point - closest)
         return dist, closest
 
-    # --- Subacromial space (SAS): minimal distance between the acromion
-    #     circle (restricted to its P16->P17 arc, through P18) and the
-    #     full humeral head circle. ---
-    def compute_sas_circle_to_circle(self, head_center, head_radius,
-                                     acr_center, acr_radius,
-                                     p16, p17, p18, num_samples=200):
-        arc_pts = self.circle_arc_points(acr_center, acr_radius, p16, p17,
-                                         num_points=num_samples)
-
-        best_dist, best_pair = None, None
-        for pt in arc_pts:
-            dist, closest_on_head = self.point_to_circle_distance(pt, head_center, head_radius)
-            if best_dist is None or dist < best_dist:
-                best_dist = dist
-                best_pair = (pt, closest_on_head)
-
-        return best_dist, best_pair, arc_pts
 
     # --- Draw an explicit list of points as a curve (used to show which
     #     arc of the acromion circle was actually searched) ---
@@ -1094,7 +1201,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         # Now safe to hide the point markers - the line no longer depends on this.
         displayNode.SetGlyphScale(0.0)
         displayNode.SetPointLabelsVisibility(False)
-        displayNode.SetPropertiesLabelVisibility(False)
+        displayNode.SetPropertiesLabelVisibility(True)
 
     # --- Compute the tangent to a circle ---
     def compute_tangent_at_point(self, center, point):
