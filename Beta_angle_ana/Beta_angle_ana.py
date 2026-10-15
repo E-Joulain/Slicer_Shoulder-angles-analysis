@@ -114,7 +114,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P7": "Latero-superior greater tuberosity (GT)",
             "P8": "Upper head greater tuberosity junction",
             "P9": "Lower head calcar junction",
-            "P10": "Mid head calcar surface",
+            "P10": "Mid head surface",
             "P11": "Lateral fossa ",
             "P12": "Medial fossa",
             "P13": "Mid fossa",
