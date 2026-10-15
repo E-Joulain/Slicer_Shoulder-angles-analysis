@@ -52,7 +52,7 @@ Use the module’s input selector to choose the active X-ray image.
 
 <img width="1349" height="606" alt="image" src="https://github.com/user-attachments/assets/6011af18-a4d3-4803-9f27-806b0dc33846" />
 
-Select the side of teh shoudler you are analysing as well as the type. 
+Select the side of the shoudler you are analysing as well as the type. By default, the extension will consider you are working on an anatomical shoudler.
 <img width="915" height="571" alt="image" src="https://github.com/user-attachments/assets/00647f6a-e4e6-491a-847b-f6cea28b03df" />
 
 ### Step 3 — Place fiducials
