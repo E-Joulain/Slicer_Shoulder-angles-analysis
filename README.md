@@ -36,7 +36,9 @@ Add the folder "...\Slicer_Shoulder-angles-analysis-main\Beta_angle_ana" contain
 The module will appear under Custom Modules as beta_angle_analysis. 
 <img width="1920" height="821" alt="image" src="https://github.com/user-attachments/assets/c0155be5-5e4b-42b1-837c-b51f1ce7fb81" />
 
-# Update the extension (WRITTING IN PROGRESS)
+# Update the extension 
+
+To update the extension, you just need the download the zip again, replace the new dowloaded folders in the original one. As the path to the extension folder should not have changed, you are ready to go with the last version of the script.
 
 # Workflow
 
@@ -44,28 +46,22 @@ The module will appear under Custom Modules as beta_angle_analysis.
 
 Use the "add DICOM Data" module or drag-and-drop to add all the radiography you would like to analyse.
 
-### Step 2 — Select the volume
+### Step 2 — Select the volume, side, type of image being analysed
 
 Use the module’s input selector to choose the active X-ray image.
 
 <img width="1349" height="606" alt="image" src="https://github.com/user-attachments/assets/6011af18-a4d3-4803-9f27-806b0dc33846" />
 
+Select the side of teh shoudler you are analysing as well as the type. 
+<img width="915" height="571" alt="image" src="https://github.com/user-attachments/assets/00647f6a-e4e6-491a-847b-f6cea28b03df" />
+
 ### Step 3 — Place fiducials
 
-Click Place fiducials, then place exactly 7 points:
+Click Place fiducials, a table described the position at which the nodes need to be placed. To see an example image of the nodes's placement and a more precise description, click on "View placement guide (PDF)" which will open a pdf descriptoin. 
 
-ID	Description
-P1	First point on supraspinatus fossa cortical margin
-P2	Second point on supraspinatus fossa cortical margin
-P3	Glenoid lower
-P4	Glenoid upper
-P5	Lateral acromion
-P6	Lower acromion
-P7	Upper femoral head
+The module automatically names the nodes in order and stops when the number needed is reached.
 
-The module automatically names points P1 → P7 in placement order.
-
-### Step 4 — Compute metrics
+### Step 4 — Compute metrics & save parameters
 
 Click Compute Parameters.
 
@@ -73,13 +69,9 @@ The module:
 
   - Detects the fiducials
 
-  - Computes Beta angle, CSA, and SAS and draws the measurement overlays on the slice view. It saves the values into a CSV file
+  - Computes the parameters and draws the measurement overlays on the slice view. It saves the values into a CSV file. A widow will open to allow you to choose where you wish to store the results.
 
-### Step 5 — Export fiducials (optional)
-
-You can save an .fcsv file containing all landmark coordinates.
-
-# Computed Measurements
+# Computed Measurements (will be updated soon)
 
 1. Beta Angle
 
@@ -92,7 +84,7 @@ Angle at P3 (glenoid lower) formed by P4P3P5, according to Gomide et al. 2017 (d
 
 3. Subacromial Space (SAS)
 
-Shortest (perpendicular) distance from: P7 (superior humeral head) to the line P5 → P6 (acromial margin)
+Shortest (perpendicular) distance from: 
 
 The extension saves a file: "analysis_beta/<patientID>.csv" in the extension foler which contains:
 
