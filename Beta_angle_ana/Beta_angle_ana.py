@@ -82,6 +82,17 @@ class Beta_angle_anaParameterNode:
     invertedVolume: vtkMRMLScalarVolumeNode
 
 
+def _fmt(value, unit=""):
+    """Safe display of a metric: None -> N/A, arrays -> (x, y, z)."""
+    if value is None:
+        return "N/A"
+    if isinstance(value, np.ndarray):
+        if value.size == 1:
+            return f"{float(value):.1f}{unit}"
+        return "(" + ", ".join(f"{v:.1f}" for v in value) + f"){unit}"
+    return f"{value:.1f}{unit}"
+
+
 class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def __init__(self, parent=None) -> None:
         ScriptedLoadableModuleWidget.__init__(self, parent)
@@ -93,7 +104,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def setup(self) -> None:
         ScriptedLoadableModuleWidget.setup(self)
 
-        self.fiducialLabels = {
+        anatomicalLabels = {
             "P1": "Diaphysis proximal medial - inner border of cortex",
             "P2": "Diaphysis proximal lateral - inner border of cortex",
             "P3": "Diaphysis distal medial - inner border of cortex",
@@ -113,8 +124,38 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P17": "Medio-inferior acromion",
             "P18": "Medial part of the scapular neck",
         }
+        reverseLabels = {
+            "P1": "Diaphysis proximal medial - inner border of cortex",
+            "P2": "Diaphysis proximal lateral - inner border of cortex",
+            "P3": "Diaphysis distal medial - inner border of cortex",
+            "P4": "Diaphysis distal lateral - inner border of cortex",
+            "P5": "Diaphysis mid medial - inner cortex",
+            "P6": "Diaphysis mid lateral - inner cortex",
+            "P7": "Latero-superior greater tuberosity (GT)",
+            "P8": "Upper limit of the humeral component",
+            "P9": "Lower limit of the humeral component",
+            "P10": "Humeral component surface (anterior edge, midway between P8 and P9)",
+            "P11": "Lateral fossa ",
+            "P12": "Medial fossa",
+            "P13": "Mid fossa",
+            "P14": "Lower glenoid (base of the glenoid sphere)",
+            "P15": "Upper glenoid (base of the glenoid sphere)",
+            "P16": "Lateroinferior acromion",
+            "P17": "Medio-inferior acromion",
+            "P18": "Peg start - limit between glenoid sphere and peg (inferior edge)",
+            "P19": "Peg end (inferior edge)",
+            "P20": "Medial part of the scapular neck",
+            "P21": "The superior glenoid tubercule",
+            "P22": "The inferior glenoid tubercule",
 
-        # Main layout and form
+        }
+        self.fiducialLabelsByMode = {
+            "Anatomical": anatomicalLabels,
+            "Reverse prosthesis": reverseLabels,
+        }
+        self._activeMode = "Anatomical"   # default
+        self.fiducialLabels = self.fiducialLabelsByMode[self._activeMode]
+
         formLayout = qt.QFormLayout()
         self.layout.addLayout(formLayout)
 
@@ -126,7 +167,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(qt.QLabel("Choose the volume on which you want to work:"))
         self.layout.addWidget(self.inputVolumeSelector)
 
-        # Cosmetic style (optional)
+        # Cosmetic style
         self.inputVolumeSelector.setStyleSheet("""
                     QComboBox {
                         background-color: #587880;
@@ -148,20 +189,17 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.sideSelector.addItem("Left")
         self.selectionFormLayout.addRow("Select Side:", self.sideSelector)
 
-        # X-ray type selection (native / anatomic prosthesis / reverse prosthesis)
-        #   - Native & Anatomic prosthesis: standard metric set (unchanged)
-        #   - Reverse prosthesis: standard metric set + Glenosphere Inclination (GI) + Overhang
+        # Analysis type: Anatomical (default) or Reverse prosthesis - different landmarks and different computations.
         self.xrayTypeSelector = qt.QComboBox()
-        self.xrayTypeSelector.addItem("Native")
-        self.xrayTypeSelector.addItem("Anatomic prosthesis")
+        self.xrayTypeSelector.addItem("Anatomical")
         self.xrayTypeSelector.addItem("Reverse prosthesis")
+        self.xrayTypeSelector.setCurrentIndex(0)
         self.xrayTypeSelector.setToolTip(
-            "Select the type of shoulder X-ray being analyzed. "
-            "For 'Reverse prosthesis', place P6 and P7 on the glenosphere rim "
-            "(instead of the native humeral head contour) to enable the additional "
-            "Glenosphere Inclination and Overhang measurements."
+            "Anatomical: 18 landmarks. Reverse prosthesis: 20 landmarks "
+            "(humeral component, glenoid sphere base and peg points)."
         )
-        self.selectionFormLayout.addRow("X-ray type:", self.xrayTypeSelector)
+        self.selectionFormLayout.addRow("Analysis type:", self.xrayTypeSelector)
+        self.xrayTypeSelector.currentIndexChanged.connect(self.onXrayTypeChanged)
 
         # Patient ID input
         self.patientIdLineEdit = qt.QLineEdit()
@@ -196,9 +234,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.fiducialTable.verticalHeader().visible = False
         self.fiducialTable.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)
 
-        for i, (fidID, label) in enumerate(self.fiducialLabels.items()):
-            self.fiducialTable.setItem(i, 0, qt.QTableWidgetItem(fidID))
-            self.fiducialTable.setItem(i, 1, qt.QTableWidgetItem(label))
+        self.populateFiducialTable()
 
         self.fiducialTableLayout.addWidget(self.fiducialTable)
 
@@ -255,6 +291,54 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         qt.QMessageBox.information(slicer.util.mainWindow(), "DICOM Import",
                                    "The DICOM browser has been opened.\nLoad your X-ray image, then return here to place fiducials.")
 
+    # ---------- Analysis type (Anatomical / Reverse prosthesis) ----------
+    def currentXrayType(self):
+        """Return 'Anatomical' or 'Reverse prosthesis'."""
+        if getattr(self, "xrayTypeSelector", None) is not None:
+            return self.xrayTypeSelector.currentText
+        return "Anatomical"
+
+    def populateFiducialTable(self):
+        """(Re)fill the guide table with the landmarks of the active analysis type."""
+        self.fiducialTable.setRowCount(len(self.fiducialLabels))
+        for i, (fidID, label) in enumerate(self.fiducialLabels.items()):
+            self.fiducialTable.setItem(i, 0, qt.QTableWidgetItem(fidID))
+            self.fiducialTable.setItem(i, 1, qt.QTableWidgetItem(label))
+
+    def clearFiducialsAndOverlays(self):
+        """Remove the placed fiducials and every drawn line / circle / arc."""
+        scene = slicer.mrmlScene
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsFiducialNode")):
+            if "beta_angle" in (node.GetName() or "").lower():
+                scene.RemoveNode(node)
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsLineNode")):
+            scene.RemoveNode(node)
+        for node in list(scene.GetNodesByClass("vtkMRMLMarkupsCurveNode")):
+            scene.RemoveNode(node)
+        self.markupNode = None
+
+    def onXrayTypeChanged(self, index):
+        newMode = self.xrayTypeSelector.currentText
+        if newMode == self._activeMode or not hasattr(self, "fiducialTable"):
+            return
+
+        node = slicer.mrmlScene.GetFirstNodeByName("Fiducials_beta_angle")
+        hasWork = node is not None and node.GetNumberOfControlPoints() > 0
+        if hasWork and not slicer.util.confirmYesNoDisplay(
+                "The two analysis types use different landmarks.\n"
+                "Changing it erases the fiducials placed so far and all drawn lines. Continue?"):
+            # revert the selector without triggering this handler again
+            self.xrayTypeSelector.blockSignals(True)
+            self.xrayTypeSelector.setCurrentIndex(self.xrayTypeSelector.findText(self._activeMode))
+            self.xrayTypeSelector.blockSignals(False)
+            return
+
+        self.clearFiducialsAndOverlays()
+        self._activeMode = newMode
+        self.fiducialLabels = self.fiducialLabelsByMode[newMode]
+        self.populateFiducialTable()
+        slicer.util.showStatusMessage(f"Analysis type: {newMode}", 3000)
+
     def onResetFiducials(self):
         scene = slicer.mrmlScene
 
@@ -296,7 +380,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             if displayNode:
                 displayNode.SetSelectedColor(0, 1, 0)  # green
                 displayNode.SetUseGlyphScale(False)
-                displayNode.SetGlyphSize(1.5)
+                displayNode.SetGlyphSize(8)
 
         # Start place mode (1 point at a time)
         slicer.modules.markups.logic().StartPlaceMode(1)
@@ -308,26 +392,27 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             fidName = f"P{n}"
             caller.SetNthControlPointLabel(n - 1, fidName)
 
-            if fidName == "P18":
-                self.drawGuideLineForP18(caller)
+            # Guide line for the scapular neck point
+            if self.currentXrayType() == "Anatomical" and n == len(self.fiducialLabels) - 1:
+                self.drawGuideLineForNeckPoint(caller)
+
         else:
             # Stop placement if too many points
             interactionNode = slicer.app.applicationLogic().GetInteractionNode()
             interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)
             slicer.util.showStatusMessage("Maximum fiducials placed — placement stopped.", 3000)
 
-    def drawGuideLineForP18(self, markupNode, half_length=80.0):
+    def drawGuideLineForNeckPoint(self, markupNode, half_length=80.0):
         """
-        Draw a temporary guide line through P12, parallel to the fossa axis
-        (TLS fit through P9, P10, P11), to help the user place P16 along the
-        expected direction of the scapular neck.
+        Draw a temporary guide line through P14, parallel to the fossa axis
+        (TLS fit through P11, P12, P13), to help the user place the last point.
         """
         try:
             points = self.logic.get_fiducial_positions(markupNode)
             required = ("P11", "P12", "P13", "P14")
             missing = [p for p in required if p not in points]
             if missing:
-                logging.warning("P18 guide line skipped: missing %s", missing)
+                logging.warning("Neck guide line skipped: missing %s", missing)
                 return
 
             P11 = np.array([points['P11']['x'], points['P11']['y'], 0.0])
@@ -342,9 +427,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             guide_start = P14 - half_length * fossa_dir
             guide_end = P14 + half_length * fossa_dir
             self.logic.draw_line(guide_start, guide_end, color=(0, 1, 0),
-                                 name="P18_GuideLine") #locked=True
-            logging.info("P18 guide line drawn from %s to %s", guide_start, guide_end)
-
+                                 name="NeckGuideLine")
+            logging.info("Neck guide line drawn from %s to %s", guide_start, guide_end)
 
             selectionNode = slicer.app.applicationLogic().GetSelectionNode()
             selectionNode.SetActivePlaceNodeClassName(markupNode.GetClassName())
@@ -352,7 +436,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.modules.markups.logic().StartPlaceMode(1)
 
         except Exception:
-            logging.exception("drawFossaGuideLineForP18 failed")
+            logging.exception("drawGuideLineForNeckPoint failed")
 
 ############## to delete ?
     def get_input_volume_spacing(self):
@@ -416,7 +500,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onOpenInstructionsPDF(self):
         try:
             moduleDir = os.path.dirname(__file__)
-            pdfPath = os.path.join(moduleDir, "Resources", "Guide_Placement.pdf")
+            pdfName = "Guide_Placement.pdf"
+            if self.currentXrayType() == "Reverse prosthesis":
+                # optional dedicated guide; falls back to the standard one if absent
+                if os.path.exists(os.path.join(moduleDir, "Resources", "Guide_Placement_Reverse.pdf")):
+                    pdfName = "Guide_Placement_Reverse.pdf"
+            pdfPath = os.path.join(moduleDir, "Resources", pdfName)
 
             if not os.path.exists(pdfPath):
                 slicer.util.errorDisplay("PDF file not found.")
@@ -428,21 +517,14 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slicer.util.errorDisplay(f"Failed to open PDF: {str(e)}")
 
     def onCalculateMetrics(self, timepoint: str):
-        """Compute all metrics from fiducials and draw them.
+        """Compute the metrics of the selected analysis type, show them and export.
 
-        X-ray type (self.xrayTypeSelector) controls which metrics are computed:
-            - Native / Anatomic prosthesis: standard metric set only.
-            - Reverse prosthesis: standard metric set PLUS two additional
-              metrics that rely on the glenosphere axis (P6->P7):
-                - GI  (Glenosphere Inclination): angle between the fossa axis
-                  (P9->P10) and the glenosphere axis (P6->P7).
-                - Overhang: signed distance from P4 to P12, projected along
-                  the glenosphere axis (P6->P7).
+        Anatomical (18 landmarks)        -> computeAnatomicalMetrics
+        Reverse prosthesis (20 landmarks) -> computeReverseMetrics
         """
         nodeName = f"Fiducials_{timepoint}"
-        outputDir = self.outputDirectoryButton.currentPath
-        markupNode = slicer.mrmlScene.GetFirstNodeByName(nodeName)
         scene = slicer.mrmlScene
+        markupNode = scene.GetFirstNodeByName(nodeName)
 
         if not markupNode:
             slicer.util.errorDisplay(f"No fiducials placed for {timepoint}")
@@ -466,7 +548,19 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         for node in list(scene.GetNodesByClass("vtkMRMLMarkupsCurveNode")):
             scene.RemoveNode(node)
 
-        # --- Points ---
+        if self.currentXrayType() == "Reverse prosthesis":
+            metrics, text = self.computeReverseMetrics(points, patientID)
+        else:
+            metrics, text = self.computeAnatomicalMetrics(points, patientID)
+        if metrics is None:
+            return
+
+        self.currentMetrics = metrics
+        self.showTextInSliceViews(text)
+        self.exportAfterCompute(markupNode, metrics, patientID, timepoint)
+
+    def computeAnatomicalMetrics(self, points, patientID):
+        """Anatomical analysis (18 landmarks). Returns (metrics, text)."""
         P1 = np.array([points['P1']['x'], points['P1']['y'], points['P1']['z']])
         P2 = np.array([points['P2']['x'], points['P2']['y'], points['P2']['z']])
         P3 = np.array([points['P3']['x'], points['P3']['y'], points['P3']['z']])
@@ -512,10 +606,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.logic.draw_arc(intersect, P11, P15, beta_angle, name="BetaAngleArc", color=(1, 1, 0), num_points=5)
 
-
         # --- Critical Shoulder Angle (CSA) ---
-
-        csa_angle = self.logic.compute_angle(P14, P15, P16)
+        csa_angle = self.logic.compute_angle(P15, P14, P16)
 
         # --- Subacromial space (SAS) ---
         center_humerus, radius_humerus = self.logic.compute_circle_center(P8, P9, P10)
@@ -535,35 +627,29 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             except ValueError as e:
                 logging.warning("SAS not computed: %s", e)
         else:
-            logging.warning("SAS not computed: P6/P7/P8 are collinear - "
+            logging.warning("SAS not computed: P8/P9/P10 are collinear - "
                             "check humeral head point placement.")
 
         # --- Glenoid Height (GH) ---
         gh_distance = np.linalg.norm(P14 - P15)
 
         # --- Scapular Neck Length (SNL) ---
-        snl_distance = np.linalg.norm(P18 - P15)
+        snl_distance = np.linalg.norm(P18 - P14)
 
         # --- Scapular Neck Angle (SNA) ---
         sna_angle = self.logic.compute_angle(P14, P15, P18)
 
-        # --- Distalization shoulder angle (DSA) ---
-        dsa_angle = self.logic.compute_angle(P8, P14, P16)
-
-        # --- Lateralization shoulder angle (LSA) ---
-        lsa_angle = self.logic.compute_angle(P7, P16, P14)
 
         # --- Humeral Axis ---
-        # P1, P3, P5 = inner cortical edge; P2, P4, P6 = outer cortical edge
         res = self.logic.central_axis_from_cortices([P1, P3, P5], [P2, P4, P6])
 
         mid1 = res["p_start"]
         mid2 = res["p_end"]
         self.logic.draw_line(mid1, mid2, name="HumeralAxis")
 
-        axis_unit = res["direction"]
+       # axis_unit = res["direction"]
         axis_vector = mid2 - mid1
-        axis_length = np.linalg.norm(axis_vector)
+       # axis_length = np.linalg.norm(axis_vector)
 
         logging.info("Humeral axis: %d iter | half-width %.2f mm | "
                      "asymmetry %.4f mm",
@@ -587,34 +673,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             logging.warning("GTA not computed: humeral head circle is "
                             "degenerate (P8/P9/P10 collinear).")
 
-        # --- Reverse-prosthesis-only metrics ---
-        # Only computed when the selected X-ray type is "Reverse prosthesis".
-        # For these X-rays, P6/P7 are placed on the glenosphere rim instead of
-        # the native humeral head contour, so P6->P7 represents the
-        # glenosphere (GS) axis.
-        xrayType = self.xrayTypeSelector.currentText if hasattr(self, "xrayTypeSelector") else "Native"
-        is_reverse = (xrayType == "Reverse prosthesis")
-
-        gi_angle = None
-        overhang_distance = None
-
-        if is_reverse:
-            # --- Glenosphere Inclination (GI) ---
-            gi_angle = self.logic.compute_angle_between_vectors(fossa_dir, P9 - P8)
-
-            # draw the fitted fossa line across the extent of all 3 fossa points, not just P9-P10
-            fossa_pts = np.vstack([P11, P12, P13])
-            t_fossa = (fossa_pts - fossa_centroid) @ fossa_dir
-            fossa_line_start = fossa_centroid + t_fossa.min() * fossa_dir
-            fossa_line_end = fossa_centroid + t_fossa.max() * fossa_dir
-            self.logic.draw_line(fossa_line_start, fossa_line_end, color=(0, 1, 1), name="GI_fossa_axis")
-            self.logic.draw_line(P8, P9, color=(0, 1, 1), name="GI_GS_axis")
-
-            # --- Overhang ---
-            overhang_distance = self.logic.project_vector_onto_axis(P4 - P13, P6, P7)
-
         # Save metrics
         metrics = {
+            "xray_type": "Anatomical",
             "beta_angle": beta_angle,
             "critical_shoulder_angle": csa_angle,
             "subacromial_space": sas_distance,
@@ -625,32 +686,51 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "GH": gh_distance,
             "SNL": snl_distance,
             "SNA": sna_angle,
-            "DSA": dsa_angle,
-            "LSA": lsa_angle,
 
         }
-        if is_reverse:
-            metrics["GI"] = gi_angle
-            metrics["Overhang"] = overhang_distance
-       # self.logic.saveCombinedCSV(markupNode, metrics, patientID, timepoint, outputDir)
-        self.currentMetrics = metrics
         # --- Format results as table ---
         text = (
             f"Patient: {patientID}\n"
             f"-------------------------\n"
             f"Beta : {beta_angle:.1f}°\n"
             f"CSA  : {csa_angle:.1f}°\n"
-            f"SAS  : {sas_distance:.1f} mm\n"
+            f"SAS  : {_fmt(sas_distance, ' mm')}\n"
             f"GH   : {gh_distance:.1f} mm\n"
-            f"GTA  : {gta_angle:.1f} deg\n"
+            f"GTA  : {_fmt(gta_angle, '°')}\n"
         )
-        if is_reverse:
-            text += (
-                f"GI   : {gi_angle:.1f}°\n"
-                f"Overhang : {overhang_distance:.1f} mm\n"
-            )
+        return metrics, text
 
-        # --- Display in slice views ---
+    def computeReverseMetrics(self, points, patientID):
+        """Reverse prosthesis analysis (22 landmarks). Returns (metrics, text)."""
+        try:
+            P = {f"P{i}": np.array([points[f"P{i}"]['x'], points[f"P{i}"]['y'], 0.0])
+                 for i in range(1, 23)}
+            m = self.logic.compute_reverse_metrics(P)
+        except Exception as e:
+            slicer.util.errorDisplay(f"Reverse analysis failed: {e}\n"
+                                     "Check the placement of the points.")
+            return None, None
+
+        text = (
+            f"Patient: {patientID}  (reverse prosthesis)\n"
+            f"-------------------------\n"
+            f"Beta : {_fmt(m['beta_angle'], '°')}\n"
+            f"CSA  : {_fmt(m['critical_shoulder_angle'], '°')}\n"
+            f"GH   : {_fmt(m['GH'], ' mm')}\n"
+            f"SNL  : {_fmt(m['SNL'], ' mm')}\n"
+            f"SNA  : {_fmt(m['SNA'], '°')}\n"
+            f"DSA  : {_fmt(m['DSA'], '°')}\n"
+            f"LSA  : {_fmt(m['LSA'], '°')}\n"
+            f"GI   : {_fmt(m['GI'], '°')}\n"
+            f"GIA1 : {_fmt(m['GIA1'], '°')}\n"
+            f"GIA2 : {_fmt(m['GIA2'], '°')}\n"
+            f"Overhang : {_fmt(m['Overhang'], ' mm')}\n"
+        )
+        return m, text
+
+
+    def showTextInSliceViews(self, text):
+        """Display the results in the corner of the slice views."""
         layoutManager = slicer.app.layoutManager()
 
         for viewName in ["Red", "Yellow", "Green"]:
@@ -661,10 +741,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 cornerAnnotation.SetText(vtk.vtkCornerAnnotation.UpperLeft, text)
                 sliceView.forceRender()
 
-        # --- Export fiducials + metrics immediately after computing ---
+    def exportAfterCompute(self, markupNode, metrics, patientID, timepoint):
+        """Ask for a folder and save fiducials + metrics right after computing."""
         outputDir = qt.QFileDialog.getExistingDirectory(
             slicer.util.mainWindow(),
-            "Select output folder"
+            "Select output folder",
+            self.outputDirectoryButton.currentPath
         )
 
         if not outputDir:
@@ -677,8 +759,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         except Exception as e:
             slicer.util.errorDisplay(f"Export failed: {e}")
 
-
-        # --- FORCE HIDE LABELS ---
 
     def onToggleFiducialLabels(self):
         """Toggle fiducial labels visibility."""
@@ -841,6 +921,104 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             return 0.0
         axis_unit = axis_vec / axis_len
         return float(np.dot(vec, axis_unit))
+
+    # --- Order two points as (upper, lower) using a "superior" direction hint ---
+    def order_upper_lower(self, pA, pB, up_hint):
+        """
+        Return (upper, lower) for two points, so the result does not depend on
+        the order in which the user clicked them. `up_hint` is any vector that
+        points roughly toward the patient's superior side in the image.
+        """
+        if np.dot((pA - pB)[:2], np.asarray(up_hint)[:2]) >= 0:
+            return pA, pB
+        return pB, pA
+
+    # --- All metrics of the reverse prosthesis analysis (20 landmarks) ---
+    def compute_reverse_metrics(self, P):
+        """
+                P: dict {"P1": np.array([x, y, 0]), ... "P20": ...}
+
+                Reverse landmark set:
+                  P1-P6   diaphysis (medial P1/P3/P5, lateral P2/P4/P6)
+                  P7      latero-superior greater tuberosity (not used by these metrics)
+                  P8-P10  humeral component (upper limit, lower limit, surface)
+                  P11-13  fossa axis
+                  P14,P15 base of the glenoid sphere (lower / upper edge, either click order)
+                  P16,P17 acromion
+                  P18,P19 peg: limit sphere/peg, end of the peg (inferior edge)
+                  P20     medial part of the scapular neck
+                  P21     the superior glenoid tubercule
+                  P22     the inferior glenoid tubercule
+                Returns a metrics dict.
+                """
+        # --- Humeral axis (drawn and exported, same method as anatomical) ---
+        res = self.central_axis_from_cortices(
+            [P["P1"], P["P3"], P["P5"]], [P["P2"], P["P4"], P["P6"]]
+        )
+        axis_vector = res["p_end"] - res["p_start"]
+        self.draw_line(res["p_start"], res["p_end"], color=(1, 1, 0), name="HumeralAxis")
+
+        # --- Glenoid sphere base: which of P14/P15 is the upper one ---
+        diaphysis_centroid = np.mean([P[f"P{i}"] for i in range(1, 7)], axis=0)
+        component_centroid = np.mean([P["P8"], P["P9"], P["P10"]], axis=0)
+        up_hint = component_centroid - diaphysis_centroid
+        upper, lower = self.order_upper_lower(P["P14"], P["P15"], up_hint)
+        glenoid_vec = upper - lower  # lower -> upper
+
+        # --- Fossa axis (TLS fit through 3 points), pointing toward the humerus ---
+        fossa_centroid, fossa_dir = self.fit_line_tls([P["P11"], P["P12"], P["P13"]])
+        if np.dot(fossa_dir, component_centroid - fossa_centroid) < 0:
+            fossa_dir = -fossa_dir
+
+        # --- Scapular set ---
+        beta_angle = self.compute_beta_angle_from_vectors(fossa_dir, glenoid_vec)
+        csa_angle = self.compute_angle(upper, lower, P["P16"])
+        gh_distance = np.linalg.norm(upper - lower)  # height of the sphere base
+        snl_distance = np.linalg.norm(P["P20"] - lower)
+        sna_angle = self.compute_angle(upper, lower, P["P20"])
+
+        # --- GI: fossa axis vs glenosphere base line P14-P15 ---
+        gi_angle = self.compute_angle_between_vectors(fossa_dir, glenoid_vec)
+
+        # --- GIA1: fossa axis vs perpendicular to the base line P14-P15 ---
+        perpendicular = np.array([-glenoid_vec[1], glenoid_vec[0], 0.0])
+        gia1_angle = self.compute_angle_between_vectors(fossa_dir, perpendicular)
+
+        # --- GIA2: fossa axis vs peg axis ---
+        peg_vec = P["P19"] - P["P18"]
+        gia2_angle = self.compute_angle_between_vectors(fossa_dir, peg_vec)
+
+        # --- DSA / LSA (same construction as the anatomical analysis, with P21) ---
+        dsa_angle = self.compute_angle(P["P16"], P["P21"], P["P7"])
+        lsa_angle = self.compute_angle(P["P21"], P["P16"], P["P7"])
+
+        # --- Overhang: distance between the inferior glenoid edge and P22 ---
+        overhang_distance = float(np.linalg.norm(lower - P["P22"]))
+
+        # --- Drawings ---
+        fossa_pts = np.vstack([P["P11"], P["P12"], P["P13"]])
+        t_fossa = (fossa_pts - fossa_centroid) @ fossa_dir
+        self.draw_line(fossa_centroid + t_fossa.min() * fossa_dir,
+                       fossa_centroid + t_fossa.max() * fossa_dir,
+                       color=(0, 1, 1), name="FossaAxis")
+        self.draw_line(lower, upper, color=(0.5, 0, 1), name="GlenosphereBase")
+        self.draw_line(P["P18"], P["P19"], color=(1, 0.5, 0), name="PegAxis")
+
+        return {
+            "xray_type": "Reverse prosthesis",
+            "beta_angle": beta_angle,
+            "critical_shoulder_angle": csa_angle,
+            "GH": gh_distance,
+            "SNL": snl_distance,
+            "SNA": sna_angle,
+            "DSA": dsa_angle,
+            "LSA": lsa_angle,
+            "GI": gi_angle,
+            "GIA1": gia1_angle,
+            "GIA2": gia2_angle,
+            "Overhang": overhang_distance,
+            "HumeralAxis": axis_vector,
+        }
 
     # --- Compute least-squares line fit ---
     def fit_line_tls(self, points):
@@ -1025,9 +1203,18 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             points.append([arc_point_2d[0], arc_point_2d[1], vertex[2]])
         return points
 
+    @staticmethod
+    def _hide_measurements(node):
+        """Keep only the node name in the label: disable length/angle/etc. measurements."""
+        try:
+            for i in range(node.GetNumberOfMeasurements()):
+                node.GetNthMeasurement(i).SetEnabled(False)
+            node.Modified()
+        except Exception:
+            logging.exception("could not disable measurements")
 
     # --- Draw arc ---
-    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.7, num_points=30):
+    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=1.2, num_points=30):
         """
         Draw an arc centered at `vertex`, starting at `p1` and spanning `angle_deg` toward `p2`.
         The arc is drawn in the XY plane.
@@ -1049,6 +1236,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         curveNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsCurveNode", name)
         for pt in points:
             curveNode.AddControlPoint(pt)
+        self._hide_measurements(curveNode)
 
         displayNode = curveNode.GetDisplayNode()
         if displayNode:
@@ -1066,7 +1254,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetPropertiesLabelVisibility(True)
 
     # --- Draw line ---
-    def draw_line(self, A, B, color=(1, 1, 0), thickness=0.7, name=None):
+    def draw_line(self, A, B, color=(1, 1, 0), thickness= 1.2, name=None):
         """Draw a line as a Markups Line Node, with endpoint markers hidden."""
         # Remove previous line node with same name
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsLineNode"):
@@ -1078,6 +1266,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         lineNode.AddControlPoint(B.tolist())
         lineNode.SetNthControlPointLabel(0, "")
         lineNode.SetNthControlPointLabel(1, "")
+        self._hide_measurements(lineNode)
 
         displayNode = lineNode.GetDisplayNode()
         if displayNode:
@@ -1163,7 +1352,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
     # --- Draw an explicit list of points as a curve (used to show which
     #     arc of the acromion circle was actually searched) ---
-    def draw_arc_points(self, points, name="Arc", color=(1, 0.5, 0), thickness=0.3):
+    def draw_arc_points(self, points, name="Arc", color=(1, 0.5, 0), thickness=0.7):
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
                 slicer.mrmlScene.RemoveNode(node)
@@ -1177,7 +1366,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetSelectedColor(*color)
             displayNode.SetLineThickness(thickness)
 
-    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=0.7):
+    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=1.2):
 
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
