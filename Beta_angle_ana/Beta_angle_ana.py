@@ -104,7 +104,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def setup(self) -> None:
         ScriptedLoadableModuleWidget.setup(self)
 
-        anatomicalLabels = {
+        nativeLabels = {
             "P1": "Diaphysis proximal medial - inner border of cortex",
             "P2": "Diaphysis proximal lateral - inner border of cortex",
             "P3": "Diaphysis distal medial - inner border of cortex",
@@ -132,28 +132,28 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P5": "Diaphysis mid medial - inner cortex",
             "P6": "Diaphysis mid lateral - inner cortex",
             "P7": "Latero-superior greater tuberosity (GT)",
-            "P8": "Upper limit of the humeral component",
-            "P9": "Lower limit of the humeral component",
-            "P10": "Humeral component surface (anterior edge, midway between P8 and P9)",
-            "P11": "Lateral fossa ",
-            "P12": "Medial fossa",
-            "P13": "Mid fossa",
-            "P14": "Lower glenoid (base of the glenoid sphere)",
-            "P15": "Upper glenoid (base of the glenoid sphere)",
-            "P16": "Lateroinferior acromion",
-            "P17": "Medio-inferior acromion",
-            "P18": "Peg start - limit between glenoid sphere and peg (inferior edge)",
-            "P19": "Peg end (inferior edge)",
-            "P20": "Medial part of the scapular neck",
-            "P21": "The superior glenoid tubercule",
-            "P22": "The inferior glenoid tubercule",
-
+            "P8": "Glenoid sphere surface",
+            "P9": "Upper limit of the humeral component",
+            "P10": "Lower limit of the humeral component",
+            "P11": "Humeral component surface (anterior edge, midway between P9 and P10)",
+            "P12": "Lateral fossa ",
+            "P13": "Medial fossa",
+            "P14": "Mid fossa",
+            "P15": "Lower glenoid (base of the glenoid sphere)",
+            "P16": "Upper glenoid (base of the glenoid sphere)",
+            "P17": "Lateroinferior acromion",
+            "P18": "Medio-inferior acromion",
+            "P19": "Peg start - limit between glenoid sphere and peg (inferior edge)",
+            "P20": "Peg end (inferior edge)",
+            "P21": "Medial part of the scapular neck",
+            "P22": "Superior glenoid tubercle",
+            "P23": "Inferior glenoid tubercle",
         }
         self.fiducialLabelsByMode = {
-            "Anatomical": anatomicalLabels,
+            "native": nativeLabels,
             "Reverse prosthesis": reverseLabels,
         }
-        self._activeMode = "Anatomical"   # default
+        self._activeMode = "native"   # default
         self.fiducialLabels = self.fiducialLabelsByMode[self._activeMode]
 
         formLayout = qt.QFormLayout()
@@ -189,13 +189,13 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.sideSelector.addItem("Left")
         self.selectionFormLayout.addRow("Select Side:", self.sideSelector)
 
-        # Analysis type: Anatomical (default) or Reverse prosthesis - different landmarks and different computations.
+        # Analysis type: native (default) or Reverse prosthesis - different landmarks and different computations.
         self.xrayTypeSelector = qt.QComboBox()
-        self.xrayTypeSelector.addItem("Anatomical")
+        self.xrayTypeSelector.addItem("native")
         self.xrayTypeSelector.addItem("Reverse prosthesis")
         self.xrayTypeSelector.setCurrentIndex(0)
         self.xrayTypeSelector.setToolTip(
-            "Anatomical: 18 landmarks. Reverse prosthesis: 20 landmarks "
+            "native: 18 landmarks. Reverse prosthesis: 20 landmarks "
             "(humeral component, glenoid sphere base and peg points)."
         )
         self.selectionFormLayout.addRow("Analysis type:", self.xrayTypeSelector)
@@ -291,12 +291,12 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         qt.QMessageBox.information(slicer.util.mainWindow(), "DICOM Import",
                                    "The DICOM browser has been opened.\nLoad your X-ray image, then return here to place fiducials.")
 
-    # ---------- Analysis type (Anatomical / Reverse prosthesis) ----------
+    # ---------- Analysis type (native / Reverse prosthesis) ----------
     def currentXrayType(self):
-        """Return 'Anatomical' or 'Reverse prosthesis'."""
+        """Return 'native' or 'Reverse prosthesis'."""
         if getattr(self, "xrayTypeSelector", None) is not None:
             return self.xrayTypeSelector.currentText
-        return "Anatomical"
+        return "native"
 
     def populateFiducialTable(self):
         """(Re)fill the guide table with the landmarks of the active analysis type."""
@@ -375,12 +375,10 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.markupNode = scene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", nodeName)
         self.markupNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointAddedEvent, self.onFiducialAdded)
 
-        if "beta_angle" in timepoint.lower():
-            displayNode = self.markupNode.GetDisplayNode()
-            if displayNode:
-                displayNode.SetSelectedColor(0, 1, 0)  # green
-                displayNode.SetUseGlyphScale(False)
-                displayNode.SetGlyphSize(8)
+        displayNode = self.markupNode.GetDisplayNode()
+        displayNode.SetSelectedColor(0, 1, 0)  # green
+        displayNode.SetUseGlyphScale(False)
+        displayNode.SetGlyphSize(2)
 
         # Start place mode (1 point at a time)
         slicer.modules.markups.logic().StartPlaceMode(1)
@@ -393,7 +391,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             caller.SetNthControlPointLabel(n - 1, fidName)
 
             # Guide line for the scapular neck point
-            if self.currentXrayType() == "Anatomical" and n == len(self.fiducialLabels) - 1:
+            if self.currentXrayType() == "native" and n == len(self.fiducialLabels) - 1:
                 self.drawGuideLineForNeckPoint(caller)
 
         else:
@@ -519,7 +517,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onCalculateMetrics(self, timepoint: str):
         """Compute the metrics of the selected analysis type, show them and export.
 
-        Anatomical (18 landmarks)        -> computeAnatomicalMetrics
+        native (18 landmarks)        -> computenativeMetrics
         Reverse prosthesis (20 landmarks) -> computeReverseMetrics
         """
         nodeName = f"Fiducials_{timepoint}"
@@ -551,7 +549,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if self.currentXrayType() == "Reverse prosthesis":
             metrics, text = self.computeReverseMetrics(points, patientID)
         else:
-            metrics, text = self.computeAnatomicalMetrics(points, patientID)
+            metrics, text = self.computenativeMetrics(points, patientID)
         if metrics is None:
             return
 
@@ -559,8 +557,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.showTextInSliceViews(text)
         self.exportAfterCompute(markupNode, metrics, patientID, timepoint)
 
-    def computeAnatomicalMetrics(self, points, patientID):
-        """Anatomical analysis (18 landmarks). Returns (metrics, text)."""
+    def computenativeMetrics(self, points, patientID):
+        """native analysis (18 landmarks). Returns (metrics, text)."""
         P1 = np.array([points['P1']['x'], points['P1']['y'], points['P1']['z']])
         P2 = np.array([points['P2']['x'], points['P2']['y'], points['P2']['z']])
         P3 = np.array([points['P3']['x'], points['P3']['y'], points['P3']['z']])
@@ -675,7 +673,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Save metrics
         metrics = {
-            "xray_type": "Anatomical",
+            "xray_type": "native",
             "beta_angle": beta_angle,
             "critical_shoulder_angle": csa_angle,
             "subacromial_space": sas_distance,
@@ -704,7 +702,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Reverse prosthesis analysis (22 landmarks). Returns (metrics, text)."""
         try:
             P = {f"P{i}": np.array([points[f"P{i}"]['x'], points[f"P{i}"]['y'], 0.0])
-                 for i in range(1, 23)}
+                 for i in range(1, 24)}
             m = self.logic.compute_reverse_metrics(P)
         except Exception as e:
             slicer.util.errorDisplay(f"Reverse analysis failed: {e}\n"
@@ -936,19 +934,8 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
     # --- All metrics of the reverse prosthesis analysis (20 landmarks) ---
     def compute_reverse_metrics(self, P):
         """
-                P: dict {"P1": np.array([x, y, 0]), ... "P20": ...}
-
-                Reverse landmark set:
-                  P1-P6   diaphysis (medial P1/P3/P5, lateral P2/P4/P6)
-                  P7      latero-superior greater tuberosity (not used by these metrics)
-                  P8-P10  humeral component (upper limit, lower limit, surface)
-                  P11-13  fossa axis
-                  P14,P15 base of the glenoid sphere (lower / upper edge, either click order)
-                  P16,P17 acromion
-                  P18,P19 peg: limit sphere/peg, end of the peg (inferior edge)
-                  P20     medial part of the scapular neck
-                  P21     the superior glenoid tubercule
-                  P22     the inferior glenoid tubercule
+                P: dict {"P1": np.array([x, y, 0]), ... "P23": ...}
+                Reverse landmark set (23 points)
                 Returns a metrics dict.
                 """
         # --- Humeral axis (drawn and exported, same method as anatomical) ---
@@ -958,51 +945,51 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         axis_vector = res["p_end"] - res["p_start"]
         self.draw_line(res["p_start"], res["p_end"], color=(1, 1, 0), name="HumeralAxis")
 
-        # --- Glenoid sphere base: which of P14/P15 is the upper one ---
+        # --- Glenoid sphere base: which of P15/P16 is the upper one ---
         diaphysis_centroid = np.mean([P[f"P{i}"] for i in range(1, 7)], axis=0)
-        component_centroid = np.mean([P["P8"], P["P9"], P["P10"]], axis=0)
-        up_hint = component_centroid - diaphysis_centroid
-        upper, lower = self.order_upper_lower(P["P14"], P["P15"], up_hint)
+        component_centroid = np.mean([P["P9"], P["P10"], P["P11"]], axis=0)
+        up_hint = component_centroid - diaphysis_centroid  # shaft -> humeral component
+        upper, lower = self.order_upper_lower(P["P15"], P["P16"], up_hint)
         glenoid_vec = upper - lower  # lower -> upper
 
         # --- Fossa axis (TLS fit through 3 points), pointing toward the humerus ---
-        fossa_centroid, fossa_dir = self.fit_line_tls([P["P11"], P["P12"], P["P13"]])
+        fossa_centroid, fossa_dir = self.fit_line_tls([P["P12"], P["P13"], P["P14"]])
         if np.dot(fossa_dir, component_centroid - fossa_centroid) < 0:
             fossa_dir = -fossa_dir
 
         # --- Scapular set ---
         beta_angle = self.compute_beta_angle_from_vectors(fossa_dir, glenoid_vec)
-        csa_angle = self.compute_angle(upper, lower, P["P16"])
+        csa_angle = self.compute_angle(upper, lower, P["P17"])
         gh_distance = np.linalg.norm(upper - lower)  # height of the sphere base
-        snl_distance = np.linalg.norm(P["P20"] - lower)
-        sna_angle = self.compute_angle(upper, lower, P["P20"])
+        snl_distance = np.linalg.norm(P["P21"] - lower)
+        sna_angle = self.compute_angle(upper, lower, P["P21"])
 
-        # --- GI: fossa axis vs glenosphere base line P14-P15 ---
+        # --- GI: fossa axis vs glenosphere base line P15-P16 ---
         gi_angle = self.compute_angle_between_vectors(fossa_dir, glenoid_vec)
 
-        # --- GIA1: fossa axis vs perpendicular to the base line P14-P15 ---
+        # --- GIA1: fossa axis vs perpendicular to the base line P15-P16 ---
         perpendicular = np.array([-glenoid_vec[1], glenoid_vec[0], 0.0])
         gia1_angle = self.compute_angle_between_vectors(fossa_dir, perpendicular)
 
-        # --- GIA2: fossa axis vs peg axis ---
-        peg_vec = P["P19"] - P["P18"]
+        # --- GIA2: fossa axis vs peg axis P19 -> P20 ---
+        peg_vec = P["P20"] - P["P19"]
         gia2_angle = self.compute_angle_between_vectors(fossa_dir, peg_vec)
 
-        # --- DSA / LSA (same construction as the anatomical analysis, with P21) ---
-        dsa_angle = self.compute_angle(P["P16"], P["P21"], P["P7"])
-        lsa_angle = self.compute_angle(P["P21"], P["P16"], P["P7"])
+        # --- DSA / LSA (same construction as the anatomical analysis, with P22) ---
+        dsa_angle = self.compute_angle(P["P17"], P["P22"], P["P7"])
+        lsa_angle = self.compute_angle(P["P22"], P["P17"], P["P7"])
 
-        # --- Overhang: distance between the inferior glenoid edge and P22 ---
-        overhang_distance = float(np.linalg.norm(lower - P["P22"]))
+        # --- Overhang: distance between the inferior glenoid edge and the inferior glenoid tubercle P23 ---
+        overhang_distance = float(np.linalg.norm(lower - P["P23"]))
 
         # --- Drawings ---
-        fossa_pts = np.vstack([P["P11"], P["P12"], P["P13"]])
+        fossa_pts = np.vstack([P["P12"], P["P13"], P["P14"]])
         t_fossa = (fossa_pts - fossa_centroid) @ fossa_dir
         self.draw_line(fossa_centroid + t_fossa.min() * fossa_dir,
                        fossa_centroid + t_fossa.max() * fossa_dir,
                        color=(0, 1, 1), name="FossaAxis")
         self.draw_line(lower, upper, color=(0.5, 0, 1), name="GlenosphereBase")
-        self.draw_line(P["P18"], P["P19"], color=(1, 0.5, 0), name="PegAxis")
+        self.draw_line(P["P19"], P["P20"], color=(1, 0.5, 0), name="PegAxis")
 
         return {
             "xray_type": "Reverse prosthesis",
