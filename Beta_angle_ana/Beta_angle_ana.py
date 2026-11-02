@@ -387,7 +387,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)
             slicer.util.showStatusMessage("Maximum fiducials placed — placement stopped.", 3000)
 
-    def drawGuideLineForNeckPoint(self, markupNode, half_length=80.0):
+    def drawGuideLineForNeckPoint(self, markupNode, half_length=250.0):
         """
         Draw a temporary guide line to help place P18 (scapular neck cortex): the
         perpendicular to the fossa line (TLS fit through P11, P12, P13) passing
@@ -412,8 +412,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             self.logic.draw_line(ref - half_length * perp, ref + half_length * perp,
                                  color=(0, 1, 0), name="NeckGuideLine")
 
-            # Creating the guide node hijacks the active placement target:
-            # point it back at the fiducial node and re-arm placement.
             selectionNode = slicer.app.applicationLogic().GetSelectionNode()
             selectionNode.SetActivePlaceNodeClassName(markupNode.GetClassName())
             selectionNode.SetActivePlaceNodeID(markupNode.GetID())
@@ -861,8 +859,8 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         t = (fossa_pts - fossa_centroid) @ fossa_dir
         self.draw_line(fossa_centroid + t.min() * fossa_dir, fossa_centroid + t.max() * fossa_dir,
                        color=(0, 1, 1), name="FossaAxis")
-        self.draw_line(ref, srp, color=(0.7, 0.7, 0.7), name="SRP_perpendicular")
-        self.draw_line(srp, cor, color=(1, 0.5, 0), name="SRP_COR")
+     #   self.draw_line(ref, srp, color=(0.7, 0.7, 0.7), name="SRP_perpendicular")
+      #  self.draw_line(srp, cor, color=(1, 0.5, 0), name="SRP_COR")
 
         # --- Measures common to both analyses ---
         def perp_dist(pt):   # unsigned distance to the humeral axis
@@ -1149,7 +1147,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetPropertiesLabelVisibility(True)
 
     # --- Draw line ---
-    def draw_line(self, A, B, color=(1, 1, 0), thickness=0.7, name=None):
+    def draw_line(self, A, B, color=(1, 1, 0), thickness= 1, name=None):
         """Draw a line as a Markups Line Node, with endpoint markers hidden."""
         # Remove previous line node with same name
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsLineNode"):
