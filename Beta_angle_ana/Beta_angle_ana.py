@@ -124,7 +124,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P15": "Upper glenoid",
             "P16": "Lateroinferior acromion",
             "P17": "Medio-inferior acromion",
-            "P18": "Scapular neck - Guideline junction",
+            "P18": "Scapular neck cortex - Guideline junction",
         }
         # Reverse prosthesis (RSA): same landmarks except P8-P10 (glenosphere),
         # P14 (reamed glenoid) and the two peg points P19-P20.
@@ -742,8 +742,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 sliceView.forceRender()
 
     def getResultsDirectory(self):
-        """Folder 'Results' inside the module (created if needed).
-        Falls back to Slicer's temporary folder if the module folder is not writable."""
+        """
+        Folder 'Results' inside the module (created if needed).
+        """
         resultsDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Results")
         try:
             os.makedirs(resultsDir, exist_ok=True)
@@ -921,8 +922,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         """
         Project `vec` onto the axis defined by (axisA -> axisB) and return
         the signed length of that projection.
-
-        Used for Overhang
         """
         axis_vec = axisB - axisA
         axis_len = np.linalg.norm(axis_vec)
@@ -942,7 +941,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             return pA, pB
         return pB, pA
 
-    # --- Scale helpers (pure functions) ---
+    # --- Scale helpers ---
     MM_KEYS = ("CORLat", "CORDist", "HumOffset", "GTHeight", "GTLat", "NeckLat", "NeckDist",
                "COR_radius")
 
@@ -1036,6 +1035,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
           P16,P17 acromion
           P18     scapular neck
           P19,P20 peg start / end (RSA only)
+          P21, P22 humeral component (RSA only)
 
         Definitions (mm, degrees):
           Fossa line     TLS fit through P11-P13 (the P11-P12 line)
@@ -1459,57 +1459,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
         return center, radius
 
-    # --- Sample points along the arc of a circle that runs between two
-    #     boundary points, through a third point that disambiguates which
-    #     of the two possible arcs (minor/major) is the right one. ---
-    def circle_arc_points(self, center, radius, p_start, p_end, num_points=200):
-        def angle_of(p):
-            return np.arctan2(p[1] - center[1], p[0] - center[0])
-
-        a_start = angle_of(p_start)
-        a_end = angle_of(p_end)
-        d_end = (a_end - a_start) % (2 * np.pi)  # CCW distance, in [0, 2pi)
-
-        if d_end <= np.pi:
-            thetas = a_start + np.linspace(0, d_end, num_points)
-        else:
-            thetas = a_start - np.linspace(0, 2 * np.pi - d_end, num_points)
-
-        x = center[0] + radius * np.cos(thetas)
-        y = center[1] + radius * np.sin(thetas)
-        z = np.full_like(thetas, center[2])
-        return np.stack([x, y, z], axis=1)
-
-
-    # --- Distance from a point to the nearest point on a circle (2D, in-plane) ---
-    def point_to_circle_distance(self, point, center, radius):
-        v = point[:2] - center[:2]
-        n = np.linalg.norm(v)
-        if n < 1e-9:
-            closest_xy = center[:2] + np.array([radius, 0.0])
-        else:
-            closest_xy = center[:2] + radius * v / n
-        closest = np.array([closest_xy[0], closest_xy[1], center[2]])
-        dist = np.linalg.norm(point - closest)
-        return dist, closest
-
-
-    # --- Draw an explicit list of points as a curve (used to show which
-    #     arc of the acromion circle was actually searched) ---
-    def draw_arc_points(self, points, name="Arc", color=(1, 0.5, 0), thickness=0.5):
-        for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
-            if node.GetName() == name:
-                slicer.mrmlScene.RemoveNode(node)
-
-        curveNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsCurveNode", name)
-        for pt in points:
-            curveNode.AddControlPoint(pt.tolist())
-        self._hide_measurements(curveNode)
-
-        displayNode = curveNode.GetDisplayNode()
-        if displayNode:
-            displayNode.SetSelectedColor(*color)
-            displayNode.SetLineThickness(thickness)
 
     def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=0.8):
 
@@ -1538,34 +1487,4 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         displayNode.SetPointLabelsVisibility(False)
         displayNode.SetPropertiesLabelVisibility(True)
 
-    # --- Compute the tangent to a circle ---
-    def compute_tangent_at_point(self, center, point):
-        """
-        Compute tangent line at a point of a circle.
-        Returns two points defining the tangent.
-        """
 
-        radius_vec = point - center
-
-        tangent_vec = np.array([-radius_vec[1], radius_vec[0], 0])
-
-        tangent_vec = tangent_vec / np.linalg.norm(tangent_vec)
-
-        p1 = point - 50 * tangent_vec
-        p2 = point + 50 * tangent_vec
-
-        return p1, p2
-
-    def draw_parallel_tangent(self, center, radius, A, B, name="SAS_Tangent"):
-
-        AB = B - A
-
-        normal = np.array([-AB[1], AB[0], 0])
-        normal = normal / np.linalg.norm(normal)
-
-        tangent_point = center + radius * normal
-
-        p1 = tangent_point - 50 * AB / np.linalg.norm(AB)
-        p2 = tangent_point + 50 * AB / np.linalg.norm(AB)
-
-        self.draw_line(p1, p2, name=name, color=(0, 0, 1))
