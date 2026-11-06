@@ -124,7 +124,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "P15": "Upper glenoid",
             "P16": "Lateroinferior acromion",
             "P17": "Medio-inferior acromion",
-            "P18": "Scapular neck cortex - on the guide line (perpendicular to the fossa line through P15)",
+            "P18": "Scapular neck - Guideline junction",
         }
         # Reverse prosthesis (RSA): same landmarks except P8-P10 (glenosphere),
         # P14 (reamed glenoid) and the two peg points P19-P20.
@@ -365,8 +365,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             displayNode = self.markupNode.GetDisplayNode()
             if displayNode:
                 displayNode.SetSelectedColor(0, 1, 0)  # green
-              #  displayNode.SetUseGlyphScale(False)
-              #  displayNode.SetGlyphSize(1.5)
+               # displayNode.SetUseGlyphScale(False)
+               # displayNode.SetGlyphSize(1.5)
 
         # Start place mode (1 point at a time)
         slicer.modules.markups.logic().StartPlaceMode(1)
@@ -379,7 +379,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             caller.SetNthControlPointLabel(n - 1, fidName)
 
             # Guide line for the scapular neck point P18: drawn right after P17 is placed.
-            if n == 17:
+            if n == 18:
                 self.drawGuideLineForNeckPoint(caller)
         else:
             # Stop placement if too many points
@@ -387,18 +387,30 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             interactionNode.SetCurrentInteractionMode(slicer.vtkMRMLInteractionNode.ViewTransform)
             slicer.util.showStatusMessage("Maximum fiducials placed — placement stopped.", 3000)
 
-    def drawGuideLineForNeckPoint(self, markupNode, half_length=250.0):
+    def activeVolumeNode(self):
+        """Volume used for the analysis: the selected input volume, else the first scalar volume."""
+        node = None
+        try:
+            node = self.inputVolumeSelector.currentNode() if self.inputVolumeSelector else None
+        except Exception:
+            node = None
+        if node is None:
+            node = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
+        return node
+
+    def drawGuideLineForNeckPoint(self, markupNode):
         """
-        Draw a temporary guide line to help place P18 (scapular neck cortex): the
-        perpendicular to the fossa line (TLS fit through P11, P12, P13) passing
-        through the scapular reference landmark = P8 (upper glenosphere) in the
-        reverse prosthesis analysis, P15 (upper glenoid) in the anatomical one.
-        P18 must be placed on the neck cortex along this line.
+        Temporary guide line to help place P18 (scapular neck), drawn after P17.
+
+        Reverse prosthesis: perpendicular to the fossa line (TLS fit P11-P13) through
+        P8 (upper glenosphere); P18 goes on the neck cortex along this line.
+        Anatomical: line through P14 parallel to the fossa line (TLS fit P11-P13).
+        The line spans the whole image (half-length = image diagonal).
         """
         try:
+            reverse = (self.currentXrayType() == "Reverse prosthesis")
             points = self.logic.get_fiducial_positions(markupNode)
-            refName = "P8" if self.currentXrayType() == "Reverse prosthesis" else "P15"
-            required = ("P11", "P12", "P13", refName)
+            required = ("P11", "P12", "P13", "P8" if reverse else "P14")
             missing = [p for p in required if p not in points]
             if missing:
                 logging.warning("Neck guide line skipped: missing %s", missing)
@@ -406,19 +418,40 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
             pt = lambda k: np.array([points[k]['x'], points[k]['y'], 0.0])
             _, fossa_dir = self.logic.fit_line_tls([pt("P11"), pt("P12"), pt("P13")])
-            perp = np.array([-fossa_dir[1], fossa_dir[0], 0.0])
-            ref = pt(refName)
 
-            self.logic.draw_line(ref - half_length * perp, ref + half_length * perp,
+            if reverse:
+                direction = np.array([-fossa_dir[1], fossa_dir[0], 0.0])
+                anchor = pt("P8")
+            else:
+                direction = np.array([-fossa_dir[1], fossa_dir[0], 0.0])
+                anchor = pt("P15")
+
+            # Long enough to cross the whole image whatever the pixel spacing
+            half_length = 250.0
+            volumeNode = self.activeVolumeNode()
+            if volumeNode is not None:
+                bounds = [0.0] * 6
+                volumeNode.GetBounds(bounds)
+                diagonal = float(np.linalg.norm([bounds[1] - bounds[0],
+                                                 bounds[3] - bounds[2],
+                                                 bounds[5] - bounds[4]]))
+                if diagonal > 0:
+                    half_length = diagonal
+
+            self.logic.draw_line(anchor - half_length * direction,
+                                 anchor + half_length * direction,
                                  color=(0, 1, 0), name="NeckGuideLine")
 
+            # Creating the guide node hijacks the active placement target:
+            # point it back at the fiducial node and re-arm placement.
             selectionNode = slicer.app.applicationLogic().GetSelectionNode()
             selectionNode.SetActivePlaceNodeClassName(markupNode.GetClassName())
             selectionNode.SetActivePlaceNodeID(markupNode.GetID())
             slicer.modules.markups.logic().StartPlaceMode(1)
 
-        except Exception:
+        except Exception as e:
             logging.exception("drawGuideLineForNeckPoint failed")
+            slicer.util.showStatusMessage(f"Neck guide line failed: {e}", 8000)
 
 ############## to delete ?
     def get_input_volume_spacing(self):
@@ -524,11 +557,18 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             scene.RemoveNode(node)
 
         if self.currentXrayType() == "Reverse prosthesis":
-            metrics, text = self.computeReverseMetrics(points, patientID)
+            metrics, _ = self.computeReverseMetrics(points, patientID)
         else:
-            metrics, text = self.computeAnatomicalMetrics(points, patientID)
+            metrics, _ = self.computeAnatomicalMetrics(points, patientID)
         if metrics is None:
             return
+
+        # Convert the distances to real mm (DICOM first) and let the user confirm the scale
+        metrics = self.calibrateMetrics(metrics)
+        if metrics is None:
+            slicer.util.showStatusMessage("Calculation cancelled.", 3000)
+            return
+        text = self.buildResultsText(metrics, patientID)
 
         self.currentMetrics = metrics
         self.showTextInSliceViews(text)
@@ -552,8 +592,127 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                                      "Check the placement of the points.")
             return None, None
 
-        header = f"Patient: {patientID}  ({'RSA' if mode == 'Reverse prosthesis' else 'pre-op'})\n"
-        lines = [header, "-------------------------\n"]
+        return m, ""
+
+    # ---------- Scale (calibration) ----------
+    def readDicomTags(self, volumeNode):
+        """Spacing-related DICOM tags of the loaded image: {'PixelSpacing': '0.14\\0.14', ...}."""
+        tags = {}
+        wanted = (("PixelSpacing", "0028,0030"), ("ImagerPixelSpacing", "0018,1164"),
+                  ("Magnification", "0018,1114"), ("CalibrationType", "0028,0A02"))
+        try:
+            uids = (volumeNode.GetAttribute("DICOM.instanceUIDs") or "").split()
+            if not uids:
+                return tags
+            path = slicer.dicomDatabase.fileForInstance(uids[0])
+            if not path:
+                return tags
+            for key, tag in wanted:
+                try:
+                    value = slicer.dicomDatabase.fileValue(path, tag)
+                except Exception:
+                    value = ""
+                if value:
+                    tags[key] = str(value)
+            if not tags:                      # fall back on pydicom when available
+                try:
+                    import pydicom
+                    ds = pydicom.dcmread(path, stop_before_pixels=True)
+                    for key, kw in (("PixelSpacing", "PixelSpacing"),
+                                    ("ImagerPixelSpacing", "ImagerPixelSpacing"),
+                                    ("Magnification", "EstimatedRadiographicMagnificationFactor"),
+                                    ("CalibrationType", "PixelSpacingCalibrationType")):
+                        if kw in ds:
+                            tags[key] = "\\".join(str(v) for v in ds[kw].value) \
+                                if hasattr(ds[kw].value, "__iter__") and not isinstance(ds[kw].value, str) \
+                                else str(ds[kw].value)
+                except Exception:
+                    pass
+        except Exception:
+            logging.warning("Could not read the DICOM spacing tags", exc_info=True)
+        return tags
+
+    def calibrateMetrics(self, m):
+        """
+        Put the distances in real mm and ask the user whether the scale looks right.
+        Priority: DICOM spacing (PixelSpacing, else ImagerPixelSpacing / magnification),
+        then the spacing Slicer assigned to the image. Returns the metrics, or None if
+        the user cancelled.
+        """
+        mode = m["xray_type"]
+        factor, source = 1.0, "image spacing as loaded in Slicer (no DICOM spacing found)"
+        volumeNode = self.activeVolumeNode()
+        volSpacing = None
+        if volumeNode is not None:
+            try:
+                sx, sy, _ = volumeNode.GetSpacing()
+                volSpacing = (float(sx), float(sy))
+                m["volume_spacing_mm"] = volSpacing
+            except Exception:
+                volSpacing = None
+            dicomSpacing, dicomSource = self.logic.choose_dicom_spacing(self.readDicomTags(volumeNode))
+            if dicomSpacing and volSpacing:
+                factor = self.logic.scale_factor(dicomSpacing, volSpacing)
+                source = dicomSource
+                m["dicom_spacing_mm"] = dicomSpacing
+        else:
+            source = "no image found"
+
+        m = self.logic.apply_scale(m, factor)
+        check = self.logic.scale_plausibility(m, mode)
+
+        volumeId = volumeNode.GetID() if volumeNode is not None else None
+        confirmed = getattr(self, "_confirmedScale", {})
+        key = (volumeId, round(factor, 4))
+        userConfirmed = False
+        if not (check["ok"] and key in confirmed):
+            vs = (f"{volSpacing[0]:.3f} x {volSpacing[1]:.3f} mm" if volSpacing else "unknown")
+            ds = m.get("dicom_spacing_mm")
+            dsText = f"{ds[0]:.3f} x {ds[1]:.3f} mm" if ds else "not available"
+            text = (f"Scale check\n\n"
+                    f"Spacing source: {source}\n"
+                    f"DICOM spacing: {dsText}\n"
+                    f"Spacing in Slicer: {vs}\n"
+                    f"Correction applied: x{factor:.3f}\n\n"
+                    f"Fitted circle diameter: {check['diameter']:.1f} mm\n"
+                    f"Expected {check['label']}: {check['low']:.0f}-{check['high']:.0f} mm\n")
+            if not check["ok"]:
+                text += "\nWARNING: the diameter is outside the expected range - the scale may be wrong.\n"
+            text += "\nIs this scale plausible?"
+            if slicer.util.confirmYesNoDisplay(text, windowTitle="Check the scale"):
+                userConfirmed = True
+            else:
+                dlg = qt.QInputDialog(slicer.util.mainWindow())
+                dlg.setWindowTitle("Manual calibration")
+                dlg.setLabelText(f"Real diameter (mm) of the fitted circle\n({check['label']}):")
+                dlg.setInputMode(qt.QInputDialog.DoubleInput)
+                dlg.setDoubleDecimals(1)
+                dlg.setDoubleRange(1.0, 300.0)
+                dlg.setDoubleValue(float(check["typical"]))
+                if dlg.exec_() != qt.QDialog.Accepted:
+                    return None
+                manual = float(dlg.doubleValue) / check["diameter"]
+                m = self.logic.apply_scale(m, manual)
+                factor *= manual
+                source = f"manual calibration (circle diameter set to {dlg.doubleValue:.1f} mm)"
+                userConfirmed = True
+        if userConfirmed:
+            confirmed[(volumeId, round(factor, 4))] = True
+            self._confirmedScale = confirmed
+
+        m["scale_factor_applied"] = float(factor)
+        m["scale_source"] = source
+        m["scale_confirmed_by_user"] = bool(userConfirmed or (check["ok"] and key in confirmed))
+        return m
+
+    def buildResultsText(self, m, patientID):
+        mode = m["xray_type"]
+        lines = [f"Patient: {patientID}  ({'RSA' if mode == 'Reverse prosthesis' else 'pre-op'})\n",
+                 "-------------------------\n"]
+        if "scale_factor_applied" in m:
+            lines.append(f"Scale: x{m['scale_factor_applied']:.3f}\n")
+        if "COR_radius" in m:
+            lines.append(f"Circle diameter: {2 * m['COR_radius']:.1f} mm\n")
         if mode == "Reverse prosthesis":
             lines += [f"RSAA : {_fmt(m['RSAA'], '°')}\n",
                       f"DistA: {_fmt(m['DistA'], '°')}\n",
@@ -568,7 +727,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                   f"GTLat    : {_fmt(m['GTLat'], ' mm')}\n",
                   f"NeckLat  : {_fmt(m['NeckLat'], ' mm')}\n",
                   f"NeckDist : {_fmt(m['NeckDist'], ' mm')}\n"]
-        return m, "".join(lines)
+        return "".join(lines)
 
     def showTextInSliceViews(self, text):
         """Display the results in the corner of the slice views."""
@@ -783,6 +942,84 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             return pA, pB
         return pB, pA
 
+    # --- Scale helpers (pure functions) ---
+    MM_KEYS = ("CORLat", "CORDist", "HumOffset", "GTHeight", "GTLat", "NeckLat", "NeckDist",
+               "COR_radius")
+
+    @staticmethod
+    def parse_dicom_spacing(value):
+        """'0.14\\0.15' / '0.14,0.15' / [0.14, 0.15] -> (row, col) floats, or None."""
+        if value is None:
+            return None
+        try:
+            if isinstance(value, str):
+                parts = value.replace("\\", " ").replace(",", " ").replace(";", " ").split()
+            else:
+                parts = list(value)
+            vals = [float(p) for p in parts]
+            if len(vals) == 1:
+                vals = [vals[0], vals[0]]
+            if len(vals) < 2 or min(vals[:2]) <= 0:
+                return None
+            return (vals[0], vals[1])
+        except Exception:
+            return None
+
+    def choose_dicom_spacing(self, tags):
+        """
+        Pixel spacing in the patient plane from DICOM tags, by priority:
+          1. PixelSpacing (0028,0030)
+          2. ImagerPixelSpacing (0018,1164) / EstimatedRadiographicMagnificationFactor (0018,1114)
+          3. ImagerPixelSpacing alone (detector plane: magnification NOT corrected)
+        Returns ((row, col), source) or (None, "").
+        """
+        tags = tags or {}
+        ps = self.parse_dicom_spacing(tags.get("PixelSpacing"))
+        ips = self.parse_dicom_spacing(tags.get("ImagerPixelSpacing"))
+        try:
+            mag = float(str(tags.get("Magnification", "")).replace("\\", " ").split()[0])
+        except Exception:
+            mag = None
+        if ps:
+            calib = str(tags.get("CalibrationType", "")).strip()
+            return ps, "DICOM PixelSpacing (0028,0030)" + (f", calibration type {calib}" if calib else "")
+        if ips and mag and mag > 0:
+            return (ips[0] / mag, ips[1] / mag), f"DICOM ImagerPixelSpacing / magnification {mag:.3f}"
+        if ips:
+            return ips, "DICOM ImagerPixelSpacing (detector plane, magnification not corrected)"
+        return None, ""
+
+    @staticmethod
+    def scale_factor(dicom_spacing, volume_spacing_xy):
+        """Factor turning distances measured with Slicer's spacing into distances with the DICOM
+        spacing. dicom_spacing = (row, col); volume_spacing_xy = (sx, sy) with sx along columns."""
+        sx, sy = volume_spacing_xy
+        f = 0.5 * (dicom_spacing[0] / sy + dicom_spacing[1] / sx)
+        return 1.0 if abs(f - 1.0) < 0.005 else float(f)
+
+    def apply_scale(self, metrics, factor):
+        """Multiply every distance (mm) by `factor`; angles are unchanged."""
+        if factor == 1.0:
+            return dict(metrics)
+        out = dict(metrics)
+        for k in self.MM_KEYS:
+            if k in out and out[k] is not None:
+                out[k] = out[k] * factor
+        if "HumeralAxis" in out:
+            out["HumeralAxis"] = np.asarray(out["HumeralAxis"]) * factor
+        return out
+
+    @staticmethod
+    def scale_plausibility(metrics, mode):
+        """Is the fitted circle (humeral head / glenosphere) a plausible size in mm?"""
+        diameter = 2.0 * float(metrics["COR_radius"])
+        if mode == "Reverse prosthesis":
+            low, high, typical, label = 30.0, 48.0, 39.0, "glenosphere diameter (nominal 36, 39 or 42 mm)"
+        else:
+            low, high, typical, label = 35.0, 60.0, 46.0, "humeral head diameter (typically 40-55 mm)"
+        return {"diameter": diameter, "low": low, "high": high, "typical": typical,
+                "label": label, "ok": low <= diameter <= high}
+
     # --- Metrics of both analyses (pre-op / reverse prosthesis) ---
     def compute_shoulder_metrics(self, P, mode):
         """
@@ -807,8 +1044,9 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
           COR            centre of the circle through P8-P10 (humeral head / glenosphere)
           SRP            foot of the perpendicular from the reference point onto the fossa line
                          (reference point = P8 upper glenosphere in RSA, P15 upper glenoid pre-op;
-                         P18 is placed on that same perpendicular)
-          Pre-op only    GIA  fossa line vs glenoid line P14-P15
+                         in RSA, P18 is placed on that same perpendicular)
+          Pre-op only    GIA  90 - Beta, Beta = 180 - angle(fossa line (lateral), glenoid line P14->P15);
+                              + superior inclination, - inferior inclination
                          CSA  angle at P14 between P15 and P16
           RSA only       RSAA glenosphere line P8-P9 vs perpendicular to the fossa line, signed:
                               + superior inclination, - inferior inclination
@@ -846,7 +1084,11 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         # --- Centre of rotation: circle through P8, P9, P10 ---
         cor, radius = self.compute_circle_center(P["P8"], P["P9"], P["P10"])
         if cor is None:
-            raise ValueError("P8, P9 and P10 are collinear - cannot fit the circle.")
+            raise ValueError(
+                "P8, P9 and P10 are (almost) on the same line - cannot fit the circle. "
+                f"P8=({P['P8'][0]:.2f}, {P['P8'][1]:.2f}) "
+                f"P9=({P['P9'][0]:.2f}, {P['P9'][1]:.2f}) "
+                f"P10=({P['P10'][0]:.2f}, {P['P10'][1]:.2f})")
         cor = np.array([cor[0], cor[1], 0.0])
         self.draw_circle(cor, radius, name="GlenosphereCircle" if is_rsa else "HumeralHeadCircle")
 
@@ -859,8 +1101,8 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         t = (fossa_pts - fossa_centroid) @ fossa_dir
         self.draw_line(fossa_centroid + t.min() * fossa_dir, fossa_centroid + t.max() * fossa_dir,
                        color=(0, 1, 1), name="FossaAxis")
-     #   self.draw_line(ref, srp, color=(0.7, 0.7, 0.7), name="SRP_perpendicular")
-      #  self.draw_line(srp, cor, color=(1, 0.5, 0), name="SRP_COR")
+        self.draw_line(ref, srp, color=(0.7, 0.7, 0.7), name="SRP_perpendicular")
+        self.draw_line(srp, cor, color=(1, 0.5, 0), name="SRP_COR")
 
         # --- Measures common to both analyses ---
         def perp_dist(pt):   # unsigned distance to the humeral axis
@@ -898,8 +1140,12 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             }
         else:
             self.draw_line(P["P14"], P["P15"], color=(0.5, 0, 1), name="GlenoidLine")
+            # Beta: 180 - angle(fossa line pointing laterally, glenoid line pointing superiorly)
+            # GIA = 90 - Beta (+ superior inclination, - inferior inclination)
+            beta = self.compute_beta_angle_from_vectors(lat_dir, P["P15"] - P["P14"])
+            gia = float(90.0 - beta)
             specific = {
-                "GIA": self.compute_angle_between_vectors(fossa_dir, P["P15"] - P["P14"]),
+                "GIA": gia,
                 "CSA": self.compute_angle(P["P15"], P["P14"], P["P16"]),
             }
 
@@ -1107,7 +1353,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         except Exception:
             logging.exception("could not disable measurements")
 
-    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.7, num_points=30):
+    def draw_arc(self, vertex, p1, p2, angle_deg, name="Arc", color=(1, 1, 0), thickness=0.8, num_points=30):
         """
         Draw an arc centered at `vertex`, starting at `p1` and spanning `angle_deg` toward `p2`.
         The arc is drawn in the XY plane.
@@ -1147,7 +1393,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetPropertiesLabelVisibility(True)
 
     # --- Draw line ---
-    def draw_line(self, A, B, color=(1, 1, 0), thickness= 1, name=None):
+    def draw_line(self, A, B, color=(1, 1, 0), thickness=0.8, name=None):
         """Draw a line as a Markups Line Node, with endpoint markers hidden."""
         # Remove previous line node with same name
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsLineNode"):
@@ -1192,7 +1438,12 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
         d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
 
-        if abs(d) < 1e-6:
+        # Collinearity test relative to the size of the triangle (d is twice the
+        # signed area x 2, so it scales with length^2): independent of units and
+        # of which side of the line P8-P10 the third point lies on.
+        scale = max(np.hypot(ax - bx, ay - by), np.hypot(bx - cx, by - cy),
+                    np.hypot(ax - cx, ay - cy)) ** 2
+        if scale == 0 or abs(d) < 1e-9 * scale:
             return None, None
 
         ux = ((ax ** 2 + ay ** 2) * (by - cy) +
@@ -1245,7 +1496,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
     # --- Draw an explicit list of points as a curve (used to show which
     #     arc of the acromion circle was actually searched) ---
-    def draw_arc_points(self, points, name="Arc", color=(1, 0.5, 0), thickness=0.3):
+    def draw_arc_points(self, points, name="Arc", color=(1, 0.5, 0), thickness=0.5):
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
                 slicer.mrmlScene.RemoveNode(node)
@@ -1260,7 +1511,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             displayNode.SetSelectedColor(*color)
             displayNode.SetLineThickness(thickness)
 
-    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=0.7):
+    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=0.8):
 
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
