@@ -26,7 +26,7 @@ class Beta_angle_ana(ScriptedLoadableModule):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = _("Beta_angle_ana")
         # Keep categories concise and correct
-        self.parent.categories = [ "Custome_model"]
+        self.parent.categories = ["Custome_model"]
         self.parent.dependencies = []
         self.parent.contributors = ["Elise Joulain (UNIGE)"]
         self.parent.helpText = _("""
@@ -144,7 +144,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             "Anatomical": anatomicalLabels,
             "Reverse prosthesis": reverseLabels,
         }
-        self._activeMode = "Anatomical"   # default
+        self._activeMode = "Anatomical"  # default
         self.fiducialLabels = self.fiducialLabelsByMode[self._activeMode]
 
         # Main layout and form
@@ -224,7 +224,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.fiducialTableLayout.addWidget(self.fiducialTable)
 
-
         # Analysis section
         self.beta_angleGroup = ctk.ctkCollapsibleButton()
         self.beta_angleGroup.text = "Analysis of the image"
@@ -247,9 +246,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.toggleLabelsButton.connect('clicked(bool)', self.onToggleFiducialLabels)
         self.beta_angleLayout.addWidget(self.toggleLabelsButton)
 
-       # self.beta_angleExportButton = qt.QPushButton("Export fiducials nodes and parameters")
-       # self.beta_angleExportButton.connect('clicked(bool)', lambda: self.onExportFiducials("beta_angle"))
-       # self.beta_angleLayout.addWidget(self.beta_angleExportButton)
+        # self.beta_angleExportButton = qt.QPushButton("Export fiducials nodes and parameters")
+        # self.beta_angleExportButton.connect('clicked(bool)', lambda: self.onExportFiducials("beta_angle"))
+        # self.beta_angleLayout.addWidget(self.beta_angleExportButton)
 
         # Reset button
         self.resetFiducialsButton = qt.QPushButton("Reset fiducials nodes")
@@ -265,7 +264,6 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Initialize logic
         self.logic = Beta_angle_anaLogic()
-
 
     # ---------- Callbacks and helper methods ----------
     def onInputVolumeChanged(self, volumeNode):
@@ -365,8 +363,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             displayNode = self.markupNode.GetDisplayNode()
             if displayNode:
                 displayNode.SetSelectedColor(0, 1, 0)  # green
-               # displayNode.SetUseGlyphScale(False)
-               # displayNode.SetGlyphSize(1.5)
+            # displayNode.SetUseGlyphScale(False)
+            # displayNode.SetGlyphSize(1.5)
 
         # Start place mode (1 point at a time)
         slicer.modules.markups.logic().StartPlaceMode(1)
@@ -398,6 +396,18 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             node = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
         return node
 
+    def imageFrame(self, points):
+        """In-plane frame of the 2D radiograph. points: {label: {x, y, z}}.
+        1) image in the x-y, x-z or y-z plane -> the two varying coordinates (constant one ignored)
+        2) otherwise (oblique image) -> best-fit plane of the placed points."""
+        pts3 = [[p['x'], p['y'], p['z']] for p in points.values()]
+        frame = self.logic.axis_plane_frame(pts3)
+        if frame is not None:
+            logging.info("Image plane detected: %s", frame[3])
+            return frame
+        logging.info("Oblique image: using the best-fit plane of the points")
+        return self.logic.plane_frame(pts3)
+
     def drawGuideLineForNeckPoint(self, markupNode):
         """
         Temporary guide line to help place P18 (scapular neck), drawn after P17.
@@ -416,7 +426,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 logging.warning("Neck guide line skipped: missing %s", missing)
                 return
 
-            pt = lambda k: np.array([points[k]['x'], points[k]['y'], 0.0])
+            frame = self.imageFrame(points)
+            pt = lambda k: self.logic.to_plane([points[k]['x'], points[k]['y'], points[k]['z']], frame)
             _, fossa_dir = self.logic.fit_line_tls([pt("P11"), pt("P12"), pt("P13")])
 
             if reverse:
@@ -438,8 +449,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 if diagonal > 0:
                     half_length = diagonal
 
-            self.logic.draw_line(anchor - half_length * direction,
-                                 anchor + half_length * direction,
+            self.logic.draw_line(self.logic.from_plane(anchor - half_length * direction, frame),
+                                 self.logic.from_plane(anchor + half_length * direction, frame),
                                  color=(0, 1, 0), name="NeckGuideLine")
 
             # Creating the guide node hijacks the active placement target:
@@ -453,7 +464,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             logging.exception("drawGuideLineForNeckPoint failed")
             slicer.util.showStatusMessage(f"Neck guide line failed: {e}", 8000)
 
-############## to delete ?
+    ############## to delete ?
     def get_input_volume_spacing(self):
         """Return spacing (x, y) of selected input volume or None with an error message."""
         try:
@@ -547,8 +558,8 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         if len(points) < len(self.fiducialLabels):
             slicer.util.errorDisplay(f"Not enough fiducials (required: {len(self.fiducialLabels)}).")
             return
-        for label in points:
-            points[label]['z'] = 0
+        #  for label in points:
+        #      points[label]['z'] = 0
 
         # Remove all drawn overlays (axis/angle lines, circles, arcs)
         for node in list(scene.GetNodesByClass("vtkMRMLMarkupsLineNode")):
@@ -584,9 +595,11 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def _computeShoulderMetrics(self, points, patientID, mode, nPoints):
         try:
-            P = {f"P{i}": np.array([points[f"P{i}"]['x'], points[f"P{i}"]['y'], 0.0])
-                 for i in range(1, nPoints + 1)}
-            m = self.logic.compute_shoulder_metrics(P, mode)
+            P3 = {f"P{i}": np.array([points[f"P{i}"]['x'], points[f"P{i}"]['y'], points[f"P{i}"]['z']])
+                  for i in range(1, nPoints + 1)}
+            frame = self.imageFrame(points)
+            P = {k: self.logic.to_plane(v, frame) for k, v in P3.items()}
+            m = self.logic.compute_shoulder_metrics(P, mode, frame=frame)
         except Exception as e:
             slicer.util.errorDisplay(f"{mode} analysis failed: {e}\n"
                                      "Check the placement of the points.")
@@ -614,7 +627,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                     value = ""
                 if value:
                     tags[key] = str(value)
-            if not tags:                      # fall back on pydicom when available
+            if not tags:  # fall back on pydicom when available
                 try:
                     import pydicom
                     ds = pydicom.dcmread(path, stop_before_pixels=True)
@@ -801,6 +814,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 displayNode.SetPropertiesLabelVisibility(visible)
                 node.Modified()
 
+
 class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
     """Logic class for data processing, angle computation, and visualization."""
 
@@ -871,8 +885,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to save combined CSV: {e}")
 
-
-
     # --- Compute beta angle --- TO DELETE
     def compute_beta_angle(self, points):
         """Compute Beta angle (P1-P2 vs P3-P4)."""
@@ -940,6 +952,46 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         if np.dot((pA - pB)[:2], np.asarray(up_hint)[:2]) >= 0:
             return pA, pB
         return pB, pA
+
+    # --- frame ---
+    @staticmethod
+    def plane_frame(points3d):
+        pts = np.asarray(points3d, dtype=float)
+        origin = pts.mean(axis=0)
+        _, sv, vt = np.linalg.svd(pts - origin, full_matrices=False)
+        if len(sv) > 2 and sv[1] > 0 and sv[2] > 0.05 * sv[1]:
+            logging.warning("Fiducials are not coplanar (singular values %s)", sv)
+        return origin, vt[0], vt[1]
+
+    @staticmethod
+    def axis_plane_frame(points3d, tol=0.01):
+        """
+        2D radiograph lying in the x-y, x-z or y-z plane: keep the two coordinates that vary
+        (in their natural order) and ignore the constant one. Returns (origin, e1, e2, name),
+        or None when the points are not in an axis-aligned plane (oblique image).
+        """
+        pts = np.asarray(points3d, dtype=float)
+        spread = np.ptp(pts, axis=0)
+        flat = int(np.argmin(spread))  # the constant axis
+        if spread.max() <= 0 or spread[flat] > tol * spread.max():
+            return None
+        keep = [a for a in range(3) if a != flat]
+        e1, e2 = np.eye(3)[keep[0]], np.eye(3)[keep[1]]
+        origin = np.zeros(3)
+        origin[flat] = float(pts[:, flat].mean())
+        return origin, e1, e2, "xyz"[keep[0]] + "-" + "xyz"[keep[1]]
+
+    @staticmethod
+    def to_plane(p, frame):
+        origin, e1, e2 = frame[:3]
+        v = np.asarray(p, dtype=float) - origin
+        return np.array([float(v @ e1), float(v @ e2), 0.0])
+
+    @staticmethod
+    def from_plane(q, frame):
+        origin, e1, e2 = frame[:3]
+        q = np.asarray(q, dtype=float)
+        return origin + q[0] * e1 + q[1] * e2
 
     # --- Scale helpers ---
     MM_KEYS = ("CORLat", "CORDist", "HumOffset", "GTHeight", "GTLat", "NeckLat", "NeckDist",
@@ -1020,7 +1072,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
                 "label": label, "ok": low <= diameter <= high}
 
     # --- Metrics of both analyses (pre-op / reverse prosthesis) ---
-    def compute_shoulder_metrics(self, P, mode):
+    def compute_shoulder_metrics(self, P, mode, frame=None):
         """
         P    : dict {"P1": np.array([x, y, 0]), ...}  (18 points pre-op, 20 points RSA)
         mode : "Anatomical" (pre-op) or "Reverse prosthesis" (RSA)
@@ -1060,6 +1112,14 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         """
         is_rsa = (mode == "Reverse prosthesis")
         P = {k: np.array([v[0], v[1], 0.0], dtype=float) for k, v in P.items()}
+        if frame is not None:
+            to3d = lambda q: self.from_plane(q, frame)
+            circle_axes = (frame[1], frame[2])
+        else:
+            to3d = lambda q: np.asarray(q, dtype=float)
+            circle_axes = None
+        draw_line = lambda A, B, **kw: self.draw_line(to3d(A), to3d(B), **kw)
+        draw_circle = lambda c, r, **kw: self.draw_circle(to3d(c), r, axes=circle_axes, **kw)
 
         # --- Humeral axis (proximal direction positive) ---
         res = self.central_axis_from_cortices(
@@ -1071,7 +1131,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         if np.dot(axis_dir, prox) < 0:
             axis_dir = -axis_dir
         axis_vector = res["p_end"] - res["p_start"]
-        self.draw_line(res["p_start"], res["p_end"], color=(1, 1, 0), name="HumeralAxis")
+        draw_line(res["p_start"], res["p_end"], color=(1, 1, 0), name="HumeralAxis")
 
         # --- Fossa line and its two directions ---
         fossa_centroid, fossa_dir = self.fit_line_tls([P["P11"], P["P12"], P["P13"]])
@@ -1090,7 +1150,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
                 f"P9=({P['P9'][0]:.2f}, {P['P9'][1]:.2f}) "
                 f"P10=({P['P10'][0]:.2f}, {P['P10'][1]:.2f})")
         cor = np.array([cor[0], cor[1], 0.0])
-        self.draw_circle(cor, radius, name="GlenosphereCircle" if is_rsa else "HumeralHeadCircle")
+        draw_circle(cor, radius, name="GlenosphereCircle" if is_rsa else "HumeralHeadCircle")
 
         # --- Scapular reference point (SRP) ---
         ref = P["P8"] if is_rsa else P["P15"]
@@ -1099,13 +1159,13 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         # --- Drawings ---
         fossa_pts = np.vstack([P["P11"], P["P12"], P["P13"], srp])
         t = (fossa_pts - fossa_centroid) @ fossa_dir
-        self.draw_line(fossa_centroid + t.min() * fossa_dir, fossa_centroid + t.max() * fossa_dir,
-                       color=(0, 1, 1), name="FossaAxis")
-        self.draw_line(ref, srp, color=(0.7, 0.7, 0.7), name="SRP_perpendicular")
-        self.draw_line(srp, cor, color=(1, 0.5, 0), name="SRP_COR")
+        draw_line(fossa_centroid + t.min() * fossa_dir, fossa_centroid + t.max() * fossa_dir,
+                  color=(0, 1, 1), name="FossaAxis")
+        draw_line(ref, srp, color=(0.7, 0.7, 0.7), name="SRP_perpendicular")
+        draw_line(srp, cor, color=(1, 0.5, 0), name="SRP_COR")
 
         # --- Measures common to both analyses ---
-        def perp_dist(pt):   # unsigned distance to the humeral axis
+        def perp_dist(pt):  # unsigned distance to the humeral axis
             v = pt - axis_origin
             return float(abs(v[0] * axis_dir[1] - v[1] * axis_dir[0]))
 
@@ -1131,15 +1191,15 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             rsaa = float(np.degrees(np.arctan2(abs(np.dot(g, lat_dir)), np.dot(g, dist_dir))))
             if np.dot(g, lat_dir) < 0:
                 rsaa = -rsaa
-            self.draw_line(P["P8"], P["P9"], color=(0.5, 0, 1), name="GlenosphereLine")
-            self.draw_line(P["P19"], P["P20"], color=(1, 0.5, 0), name="PegAxis")
+            draw_line(P["P8"], P["P9"], color=(0.5, 0, 1), name="GlenosphereLine")
+            draw_line(P["P19"], P["P20"], color=(1, 0.5, 0), name="PegAxis")
             specific = {
                 "RSAA": rsaa,
                 "DistA": self.compute_angle(P["P16"], P["P15"], P["P7"]),
                 "LatA": self.compute_angle(P["P15"], P["P16"], P["P7"]),
             }
         else:
-            self.draw_line(P["P14"], P["P15"], color=(0.5, 0, 1), name="GlenoidLine")
+            draw_line(P["P14"], P["P15"], color=(0.5, 0, 1), name="GlenoidLine")
             # Beta: 180 - angle(fossa line pointing laterally, glenoid line pointing superiorly)
             # GIA = 90 - Beta (+ superior inclination, - inferior inclination)
             beta = self.compute_beta_angle_from_vectors(lat_dir, P["P15"] - P["P14"])
@@ -1248,7 +1308,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         proj = np.dot(point_vec, line_vec) / line_len
         closest = A + proj * line_vec / line_len
         dist = np.linalg.norm(P - closest)
-        return dist #, closest
+        return dist  # , closest
 
     # Find intersection axis-circle
     def find_axis_circle_intersection(self, origin, direction, center, radius, reference_point):
@@ -1321,7 +1381,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         origin_point = np.array([tangent_xy[0], y1 + m * (tangent_xy[0] - x1), cz])
         return float(vertical_distance), origin_point, tangent_point
 
-
     # --- Generate points along an arc ---
     def generate_arc_points(self, vertex, p1, p2, angle_deg, num_points=30):
         """
@@ -1340,7 +1399,6 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             arc_point_2d = vertex[:2] + rot_matrix @ v1[:2]
             points.append([arc_point_2d[0], arc_point_2d[1], vertex[2]])
         return points
-
 
     # --- Draw arc ---
     @staticmethod
@@ -1459,8 +1517,9 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
 
         return center, radius
 
-
-    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=60, thickness=0.8):
+    def draw_circle(self, center, radius, name="Circle", color=(0, 1, 1), num_points=80, thickness=0.8, axes=None):
+        """Circle in the plane spanned by `axes` = (e1, e2) (default: the x-y plane)."""
+        e1, e2 = axes if axes is not None else (np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]))
 
         for node in slicer.mrmlScene.GetNodesByClass("vtkMRMLMarkupsCurveNode"):
             if node.GetName() == name:
@@ -1469,9 +1528,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         curveNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsCurveNode", name)
 
         for t in np.linspace(0, 2 * np.pi, num_points):
-            x = center[0] + radius * np.cos(t)
-            y = center[1] + radius * np.sin(t)
-            curveNode.AddControlPoint([x, y, center[2]])
+            curveNode.AddControlPoint((np.asarray(center, float) + radius * (np.cos(t) * e1 + np.sin(t) * e2)).tolist())
         self._hide_measurements(curveNode)
 
         displayNode = curveNode.GetDisplayNode()
@@ -1486,5 +1543,3 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         displayNode.SetGlyphScale(0.0)
         displayNode.SetPointLabelsVisibility(False)
         displayNode.SetPropertiesLabelVisibility(True)
-
-
