@@ -432,7 +432,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
             if reverse:
                 direction = np.array([-fossa_dir[1], fossa_dir[0], 0.0])
-                anchor = pt("P8")
+                anchor = pt("P15")
             else:
                 direction = np.array([-fossa_dir[1], fossa_dir[0], 0.0])
                 anchor = pt("P15")
