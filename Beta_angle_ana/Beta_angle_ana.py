@@ -577,7 +577,9 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Convert the distances to real mm (DICOM first) and let the user confirm the scale
         metrics = self.calibrateMetrics(metrics)
         if metrics is None:
-            slicer.util.showStatusMessage("Calculation cancelled.", 3000)
+            slicer.util.showStatusMessage("Calculation cancelled (scale not validated).", 5000)
+            slicer.util.infoDisplay("Calculation cancelled: the scale was not validated, "
+                                    "so no result is shown or exported.")
             return
         text = self.buildResultsText(metrics, patientID)
 
@@ -586,7 +588,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.exportAfterCompute(markupNode, metrics, patientID, timepoint)
 
     def computeAnatomicalMetrics(self, points, patientID):
-        """Pre-operative (anatomical) analysis, 18 landmarks. Returns (metrics, text)."""
+        """Anatomical analysis, 18 landmarks. Returns (metrics, text)."""
         return self._computeShoulderMetrics(points, patientID, "Anatomical", 18)
 
     def computeReverseMetrics(self, points, patientID):
@@ -600,6 +602,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             frame = self.imageFrame(points)
             P = {k: self.logic.to_plane(v, frame) for k, v in P3.items()}
             m = self.logic.compute_shoulder_metrics(P, mode, frame=frame)
+
         except Exception as e:
             slicer.util.errorDisplay(f"{mode} analysis failed: {e}\n"
                                      "Check the placement of the points.")
@@ -702,12 +705,15 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 dlg.setDoubleDecimals(1)
                 dlg.setDoubleRange(1.0, 300.0)
                 dlg.setDoubleValue(float(check["typical"]))
-                if dlg.exec_() != qt.QDialog.Accepted:
+                accepted = dlg.exec_()
+                if not accepted:  # 0 = Cancel / closed, non-zero = OK
                     return None
-                manual = float(dlg.doubleValue) / check["diameter"]
+                value = dlg.doubleValue  # property in PythonQt, method in some bindings
+                value = float(value() if callable(value) else value)
+                manual = value / check["diameter"]
                 m = self.logic.apply_scale(m, manual)
                 factor *= manual
-                source = f"manual calibration (circle diameter set to {dlg.doubleValue:.1f} mm)"
+                source = f"manual calibration (circle diameter set to {value:.1f} mm)"
                 userConfirmed = True
         if userConfirmed:
             confirmed[(volumeId, round(factor, 4))] = True
@@ -720,7 +726,7 @@ class Beta_angle_anaWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def buildResultsText(self, m, patientID):
         mode = m["xray_type"]
-        lines = [f"Patient: {patientID}  ({'RSA' if mode == 'Reverse prosthesis' else 'pre-op'})\n",
+        lines = [f"Patient: {patientID}  ({'RSA' if mode == 'Reverse prosthesis' else 'anatomical'})\n",
                  "-------------------------\n"]
         if "scale_factor_applied" in m:
             lines.append(f"Scale: x{m['scale_factor_applied']:.3f}\n")
@@ -1071,18 +1077,18 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
         return {"diameter": diameter, "low": low, "high": high, "typical": typical,
                 "label": label, "ok": low <= diameter <= high}
 
-    # --- Metrics of both analyses (pre-op / reverse prosthesis) ---
+    # --- Metrics of both analyses (anatomical / reverse prosthesis) ---
     def compute_shoulder_metrics(self, P, mode, frame=None):
         """
-        P    : dict {"P1": np.array([x, y, 0]), ...}  (18 points pre-op, 20 points RSA)
-        mode : "Anatomical" (pre-op) or "Reverse prosthesis" (RSA)
+        P    : dict {"P1": np.array([x, y, 0]), ...}  (18 points anatomical, 20 points RSA)
+        mode : "Anatomical" (anatomical) or "Reverse prosthesis" (RSA)
 
         Landmarks (same in both analyses unless stated):
           P1-P6   diaphysis (inner cortex: medial P1/P3/P5, lateral P2/P4/P6)
           P7      latero-superior greater tuberosity
-          P8-P10  humeral head (pre-op)  /  glenosphere upper, lower, mid (RSA)
+          P8-P10  humeral head (anatomical)  /  glenosphere upper, lower, mid (RSA)
           P11-P13 fossa (lateral, most medial, mid)
-          P14     lower glenoid (pre-op) / lower reamed glenoid (RSA)
+          P14     lower glenoid (anatomical) / lower reamed glenoid (RSA)
           P15     upper glenoid
           P16,P17 acromion
           P18     scapular neck
@@ -1095,9 +1101,9 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
           distal dir     perpendicular to the fossa line, pointing toward the lower glenoid
           COR            centre of the circle through P8-P10 (humeral head / glenosphere)
           SRP            foot of the perpendicular from the reference point onto the fossa line
-                         (reference point = P8 upper glenosphere in RSA, P15 upper glenoid pre-op;
+                         (reference point = P8 upper glenosphere in RSA, P15 upper glenoid anatomical;
                          in RSA, P18 is placed on that same perpendicular)
-          Pre-op only    GIA  90 - Beta, Beta = 180 - angle(fossa line (lateral), glenoid line P14->P15);
+          anatomical only    GIA  90 - Beta, Beta = 180 - angle(fossa line (lateral), glenoid line P14->P15);
                               + superior inclination, - inferior inclination
                          CSA  angle at P14 between P15 and P16
           RSA only       RSAA glenosphere line P8-P9 vs perpendicular to the fossa line, signed:
@@ -1120,6 +1126,7 @@ class Beta_angle_anaLogic(ScriptedLoadableModuleLogic):
             circle_axes = None
         draw_line = lambda A, B, **kw: self.draw_line(to3d(A), to3d(B), **kw)
         draw_circle = lambda c, r, **kw: self.draw_circle(to3d(c), r, axes=circle_axes, **kw)
+
 
         # --- Humeral axis (proximal direction positive) ---
         res = self.central_axis_from_cortices(
